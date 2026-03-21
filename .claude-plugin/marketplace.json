@@ -1,0 +1,10 @@
+{
+  "plugins": [
+    {
+      "name": "twopanez-dev",
+      "description": "Create, build, test, and deploy 2Panez file manager plugins. Skills for the full plugin API, commands for scaffolding/building/deploying, and agents for plugin architecture.",
+      "version": "1.0.0",
+      "homepage": "https://github.com/twopanez/2panez-dev-plugin"
+    }
+  ]
+}
