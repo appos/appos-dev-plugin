@@ -1,100 +1,295 @@
 ---
 allowed-tools: [Read, Write, Bash, Glob, Grep]
 argument-hint: "<plugin-name>"
-description: Scaffold a new 2Panez plugin interactively
+description: Scaffold a new AppOS plugin using the SDK+WebView flagship pattern
 ---
 
-# Scaffold a new 2Panez plugin
+# Scaffold a new AppOS plugin
 
-Create a new 2Panez plugin from the community template. Follow these steps:
+Create a new AppOS plugin targeting the SDK pattern (`@appos.space/plugin-types` + `@appos.space/plugin-utils` + `@appos.space/view-builders`) with optional WebView panels. Reference implementation: `appos-plugin-ytdlp`.
+
+**Do not copy from `2panez-community-plugins/template/` — it's the legacy ViewDescriptor-only model and should not be used for new plugins.** Write files directly with the Write tool.
 
 ## 1. Gather information
 
-If a plugin name was provided as an argument, use it. Otherwise ask the user for:
+If a plugin name was provided as an argument, use it. Otherwise ask for:
 - **Plugin name** (kebab-case, e.g. `file-stats`)
-- **What the plugin does** (one sentence)
-- **Where to create it** (default: `~/Documents/GitHub/2panez-community-plugins/plugins/{name}/`)
+- **One-sentence description**
+- **Flagship or community?** — flagships use `space.appos.*` IDs and live under `~/Documents/GitHub/AppOS/appos-plugin-{name}/`. Community plugins use `com.community.*` IDs and live under `~/Documents/GitHub/2panez-community-plugins/plugins/{name}/` (or wherever the user prefers).
+- **Rendering mode** — WebView panel (rich UI, streaming progress, media), ViewDescriptor sidebar (simple lists, native feel), or both. If unsure, ask the user what the primary UI looks like.
 
-Generate the plugin ID as: `com.community.{name-without-hyphens}` (e.g. `com.community.filestats`).
+Generate the plugin ID:
+- Flagship: `space.appos.{namenohyphens}` → e.g. `space.appos.filestats`
+- Community: `com.community.{namenohyphens}` → e.g. `com.community.filestats`
 
-## 2. Read the API reference
+## 2. Read the relevant skill(s)
 
-Read the main skill reference files to understand the full API. Use Glob to find `**/reference/extension-api.md` and `**/reference/patterns.md` in the twopanez-dev plugin directory, then read them:
-- `extension-api.md` — Full API spec with all 16 namespaces
-- `patterns.md` — Common patterns from 7 reference plugins
+Before writing code, invoke the main skill to load the full SDK pattern:
 
-## 3. Map requirements to APIs
-
-Based on what the plugin does, determine:
-- Which API namespaces are needed
-- Which permissions to declare
-- Which shell commands to allow (if any)
-- Which network domains to allow (if any)
-- Which settings to declare (if any)
-- UI strategy:
-  - **Sidebar panel** (`registerPanel`) — supplements the file browser (stats, git status)
-  - **Full-pane view** (`registerPanel` with `target: "pane"`) — IS the content, replaces a file pane (collections, virtual folders, dashboards). Always pair with lightweight `registerActivityView`.
-  - **Activity bar view** (`registerActivityView`) — dedicated icon + sidebar for primary features (bookmarks)
-
-## 4. Copy the template
-
-```bash
-REPO_ROOT="$HOME/Documents/GitHub/2panez-community-plugins"
-TARGET="{target-directory}"
-cp -R "$REPO_ROOT/template/" "$TARGET/"
+```
+Skill: twopanez-plugin-dev
 ```
 
-## 5. Update plugin.json
+If the plugin will use a WebView panel, also invoke:
 
-Write the manifest with the correct id, name, description, permissions, shellCommands, networkDomains, and settings. Use the Write tool.
+```
+Skill: webview-panels
+```
 
-## 6. Generate src/main.ts
+These skills contain the canonical APIs, file layout, and gotchas. Do not proceed without reading them — the wrong entry-point pattern or an inline `<script>` tag will silently break the plugin.
 
-Write the main TypeScript file with:
-- A `PluginContext` interface with only the APIs this plugin needs
-- A `ViewDescriptor` interface if UI is needed
-- `let ctx: PluginContext | null = null;` for state (use short variable name)
-- Helper functions (`urlToPath`, `pathToUrl` if working with files)
-- A single `render()` function that builds the full view tree
-  - For full-pane: composable `build*()` functions returning `ViewDescriptor[]` — NO mode switching
-  - Unified layout: always-visible nav at top + divider + active content or empty state below
-- Action handler with short semantic prefixes (`"select:"`, `"open:"`, `"remove:"` — never verbose `"open-collection:"`)
-- `globalThis.activate` that stores context, registers commands/events, and does initial render
-- `globalThis.deactivate` that clears local state
-- menuActions on every listItem (this is the #1 UX pattern)
-- Multiple distinct empty states (first-run onboarding, no-selection, empty-content)
+## 3. Plan permissions and APIs
 
-Follow the patterns from `reference/patterns.md`.
+From the one-sentence description, decide:
+- **Permissions** — start minimal. `ui.sidebar` for any panel, `ui.webPanel` for WebView, `shell.execute` + `shellCommands: [...]` for CLI wrappers, `filesystem.read`/`filesystem.write` for file work, `cache` for persistence.
+- **System dependencies** — CLIs to probe on startup (with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`).
+- **Settings** — `string`, `enum`, or `boolean` keys shown in the plugin settings sheet.
+- **Rendering mode** — confirms from step 1. Drives whether you create `webview/` or not.
 
-## 7. Create tsconfig.json
+## 4. Create the project directory
+
+```bash
+TARGET="{target-directory}"
+mkdir -p "$TARGET/src" "$TARGET/dist"
+```
+
+If WebView panels are needed, also create `$TARGET/webview/{panelId}/` and `$TARGET/webview/shared/` directories.
+
+## 5. Write package.json
+
+**CRITICAL**: `@appos.space/plugin-types` is the declaration-only SDK. `@appos.space/plugin-utils` and `@appos.space/view-builders` are runtime packages.
+
+For local development against the SDK in the AppOS repo, use `file:` dependencies. Adjust the relative paths to reach `~/Documents/GitHub/AppOS/plugin-sdk/packages/*` from the target directory.
 
 ```json
 {
-    "extends": "../../tsconfig.base.json",
-    "compilerOptions": {
-        "outDir": "dist"
+    "name": "{plugin-name}",
+    "version": "1.0.0",
+    "private": true,
+    "description": "{one-sentence description}",
+    "scripts": {
+        "build": "node build.mjs",
+        "watch": "node build.mjs --watch",
+        "typecheck": "tsc --noEmit"
     },
-    "include": ["src/**/*"]
+    "devDependencies": {
+        "@appos.space/plugin-types": "file:../plugin-sdk/packages/plugin-types",
+        "esbuild": "^0.20.0",
+        "typescript": "^5.4.0"
+    },
+    "dependencies": {
+        "@appos.space/plugin-utils": "file:../plugin-sdk/packages/plugin-utils",
+        "@appos.space/view-builders": "file:../plugin-sdk/packages/view-builders"
+    }
 }
 ```
 
-## 8. Build
+If the plugin doesn't use ViewDescriptor panels at all, you can drop `@appos.space/view-builders` from `dependencies`. If it doesn't need runtime helpers, drop `@appos.space/plugin-utils` too. **`@appos.space/plugin-types` stays in `devDependencies` always** — it's type-only.
+
+## 6. Write tsconfig.json
+
+**MANDATORY**: `verbatimModuleSyntax: true` is required because `@appos.space/plugin-types` is declaration-only. Without this flag, TypeScript emits runtime `import` statements that try to resolve a non-existent module at runtime.
+
+```json
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "verbatimModuleSyntax": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "lib": ["ES2020", "DOM"]
+    },
+    "include": ["src/**/*.ts"],
+    "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}
+```
+
+Note `"lib": ["ES2020", "DOM"]` — the `DOM` entry is only needed if the plugin ships `webview/*.js` files it wants to typecheck. For pure plugin-side code, `"ES2020"` alone is fine.
+
+## 7. Write build.mjs
+
+This is the esbuild API pattern, not the CLI. It's slightly more code than `npx esbuild ...`, but supports watch mode cleanly and survives `npm run build` across platforms.
+
+```js
+/**
+ * Build script — bundles TypeScript into a single IIFE for the AppOS JSCore runtime.
+ *
+ * Usage:
+ *   node build.mjs          # One-shot build
+ *   node build.mjs --watch  # Watch mode
+ */
+import { build, context } from 'esbuild';
+
+const isWatch = process.argv.includes('--watch');
+
+const buildOptions = {
+    entryPoints: ['src/main.ts'],
+    bundle: true,
+    format: 'iife',
+    platform: 'browser',
+    target: 'es2020',
+    outfile: 'dist/main.js',
+    sourcemap: true,
+    logLevel: 'info',
+};
+
+if (isWatch) {
+    const ctx = await context(buildOptions);
+    await ctx.watch();
+    console.log('Watching for changes...');
+} else {
+    await build(buildOptions);
+}
+```
+
+## 8. Write plugin.json
+
+**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.7.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
+
+```json
+{
+    "id": "{plugin-id}",
+    "name": "{Plugin Display Name}",
+    "version": "1.0.0",
+    "runtime": "javascript",
+    "entrypoint": "dist/main.js",
+    "minHostVersion": "1.0.0",
+    "author": "{author}",
+    "description": "{description}",
+    "license": "MIT",
+    "activation": { "events": ["onStartup"] },
+    "permissions": [
+        "ui.sidebar"
+    ],
+    "settings": []
+}
+```
+
+Add permissions incrementally based on what the plugin actually does. If it uses a CLI, add `shell.execute`, `"shellCommands": ["your-tool"]`, and a `dependencies.system[]` entry with a check command and install hint.
+
+## 9. Write src/main.ts
+
+Use the `disposables[]` + `globalThis.activate` pattern. This is the canonical AppOS plugin entry shape:
+
+```ts
+/**
+ * {Plugin Name} — entry point.
+ */
+import type { PluginContext } from '@appos.space/plugin-types';
+
+const disposables: Array<() => void | Promise<void>> = [];
+
+async function activate(ctx: PluginContext): Promise<void> {
+    console.log(`[${ctx.pluginId}] activating`);
+
+    // TODO: register panels, commands, events — push each disposer into `disposables`
+    // Example:
+    //   const panelDisposer = await registerMyPanel(ctx);
+    //   disposables.push(panelDisposer);
+
+    console.log(`[${ctx.pluginId}] ready`);
+}
+
+async function deactivate(): Promise<void> {
+    while (disposables.length > 0) {
+        const d = disposables.pop();
+        try {
+            await d?.();
+        } catch (err) {
+            const name = err instanceof Error ? err.constructor.name : 'unknown';
+            console.error(`[plugin] Dispose error (${name})`);
+        }
+    }
+}
+
+// AppOS injects `activate`/`deactivate` onto globalThis — do NOT use ESM exports here.
+(globalThis as unknown as { activate: typeof activate }).activate = activate;
+(globalThis as unknown as { deactivate: typeof deactivate }).deactivate = deactivate;
+```
+
+**Never use ESM `export` for activate/deactivate.** The IIFE bundle runs the whole file once; the host reads `activate`/`deactivate` off `globalThis` after the script evaluates. Module exports disappear into the IIFE closure.
+
+**Always use `ctx` as the parameter name**, never `pluginContext`. This matches `appos-plugin-ytdlp` and every reference plugin.
+
+## 10. If using a WebView panel, write the webview scaffold
+
+Create `webview/{panelId}/index.html`, `webview/{panelId}/styles.css`, `webview/{panelId}/app.js`, and `webview/shared/bridge.js`. The bridge file is copy-pasta from `appos-plugin-ytdlp/webview/shared/bridge.js` — use the version in the `webview-panels` skill.
+
+Minimal `index.html`:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self';">
+    <title>{Panel Title}</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <div id="app"></div>
+    <script type="module" src="./app.js"></script>
+</body>
+</html>
+```
+
+**CSP gotcha**: no inline `<script>`, no inline `<style>`, no `onclick="..."`. Everything external, ES modules only. See the `webview-panels` skill for the full rules.
+
+Then in `src/main.ts`, register the panel:
+
+```ts
+ctx.ui.registerWebPanel('{panelId}', {
+    title: '{Panel Title}',
+    icon: 'square.grid.2x2',          // SF Symbol
+    htmlPath: 'webview/{panelId}/index.html',
+    allowNavigation: false,
+});
+
+disposables.push(ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
+    // handle messages from webview
+}));
+```
+
+`onWebPanelMessage` returns `void`, not a disposer — track a `disposed` flag inside your handler instead, or push a no-op cleanup. See the `webview-panels` skill → "Cleanup" section.
+
+## 11. Build
 
 ```bash
 cd "{target-directory}"
-npx esbuild src/main.ts --bundle --format=iife --target=es2020 --outfile=dist/main.js
+npm install
+npm run build
 ```
 
-## 9. Validate
+Expected output: `dist/main.js` exists and is a single IIFE bundle. Typical size is 20–100kB depending on how much you pulled in from plugin-utils / view-builders.
 
-Verify the bundle contains the required entry points:
+## 12. Validate
+
+Quick sanity check — the bundle must contain `globalThis` assignments for both entry points:
 
 ```bash
 grep -c "globalThis" "{target-directory}/dist/main.js"
 ```
 
-Report the created plugin structure and suggest next steps:
-- Edit `src/main.ts` to add more functionality
-- Run `/twopanez-dev:build` to rebuild after changes
-- Run `/twopanez-dev:deploy` to install in 2Panez
-- Run `/twopanez-dev:validate` to check for issues
+Should return at least 2. If it returns 0, the bundler inlined away the assignments — check that the file ends with `(globalThis as unknown...).activate = activate;`.
+
+Also verify the manifest is well-formed and has `minHostVersion: "1.0.0"`:
+
+```bash
+node -e "console.log(JSON.parse(require('fs').readFileSync('{target-directory}/plugin.json','utf8')).minHostVersion)"
+```
+
+## 13. Report
+
+Tell the user:
+- Where the plugin was created
+- Which permissions/dependencies were declared
+- Which rendering mode was used
+- Next steps: edit `src/main.ts` to add functionality, `/twopanez-dev:build` to rebuild, `/twopanez-dev:deploy` to install, `/twopanez-dev:validate` to check for issues.
+
+If this is a first-time plugin, also point them at `appos-plugin-ytdlp` as the canonical reference for any pattern they're unsure about — it ships every supported SDK feature.

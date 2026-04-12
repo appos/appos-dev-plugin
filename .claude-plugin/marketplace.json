@@ -2,8 +2,8 @@
   "plugins": [
     {
       "name": "twopanez-dev",
-      "description": "Create, build, test, and deploy 2Panez file manager plugins. Skills for the full plugin API, commands for scaffolding/building/deploying, and agents for plugin architecture.",
-      "version": "1.0.0",
+      "description": "Create, build, test, and deploy AppOS (2Panez) plugins using the @appos.space SDK. Skills for WebView panels, workspaces, menubar, smart folders, and CLI streaming via pipeShellToWebPanel. Commands for scaffolding/building/deploying. Canonical reference: appos-plugin-ytdlp.",
+      "version": "2.0.0",
       "homepage": "https://github.com/twopanez/2panez-dev-plugin"
     }
   ]

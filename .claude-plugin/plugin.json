@@ -1,6 +1,6 @@
 {
   "name": "twopanez-dev",
-  "description": "Create, build, test, and deploy 2Panez file manager plugins. Provides skills for the full plugin API (16 namespaces, 13 ViewDescriptor types, 24 permissions), commands for scaffolding/building/deploying, and specialized agents for plugin architecture and UI design.",
-  "version": "1.0.0",
+  "description": "Create, build, test, and deploy AppOS (2Panez) plugins using the @appos.space SDK. Skills for the full plugin API (22 namespaces, 33 permissions, WebView panels, workspaces, menubar, smart folders), commands for scaffolding/building/deploying, and specialized agents for architecture and WebView panel implementation. Canonical reference: appos-plugin-ytdlp.",
+  "version": "2.0.0",
   "homepage": "https://github.com/twopanez/2panez-dev-plugin"
 }
