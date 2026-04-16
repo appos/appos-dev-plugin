@@ -16,6 +16,7 @@ import { registerLibraryPanel } from './panels/library-panel.js';
 const disposables: Array<() => void | Promise<void>> = [];
 
 async function activate(ctx: PluginContext): Promise<void> {
+    // ctx.pluginId is runtime-injected; see extension-api.md ambient declaration
     console.log(`[${ctx.pluginId}] activating`);
 
     await initState(ctx);
@@ -363,7 +364,7 @@ If a required dependency is missing, show a "degraded banner" in the webview wit
 function getOutputDir(ctx: PluginContext): string {
     const raw = ctx.settings.get('outputDir');
     if (typeof raw === 'string' && raw.length > 0) return raw;
-    return `${ctx.pluginId}-default`;
+    return 'space.appos.myplugin-default';  // use manifest ID
 }
 ```
 
@@ -512,7 +513,7 @@ To verify the actual host version:
 defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString
 ```
 
-## 17. WebView panel with message bridge
+## 17. WebView panel with plugin-to-webview messaging
 
 **Full plugin structure** showing `plugin.json` + `src/main.ts` + `webview/main/` with external JS/CSS (CSP-compliant).
 

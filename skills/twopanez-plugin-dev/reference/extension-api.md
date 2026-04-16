@@ -41,9 +41,9 @@ declare module '@appos.space/plugin-types' {
 | `ctx.dataContracts` | Expose queryable data for other plugins | `interPlugin.query` |
 | `ctx.interPluginEvents` | Pub/sub between plugins | `interPlugin.emit` |
 | `ctx.smartFolders` | Custom filter types for smart folders (fn-13) | `filesystem.read` |
-| `ctx.preview` | File preview registry queries | `ui.preview` |
+| `ctx.preview` | File preview registry queries | `filesystem.read` (per-method; `registerProvider` is core-only) |
 | `ctx.events` | Subscribe to navigation, pane activation, selection, app.willQuit, menubar.clicked | (none) |
-| `ctx.network` | HTTP fetch and file download | `network` / `network.outbound` / `network.unrestricted` |
+| `ctx.network` | HTTP fetch and file download | `network.outbound` / `network.unrestricted` |
 | `ctx.shell` | Execute allowed shell commands (streaming) | `shell.execute` |
 | `ctx.clipboard` | Read/write system clipboard | `clipboard.read`, `clipboard.write` |
 | `ctx.shortcuts` | Register keyboard shortcuts | `ui.shortcuts` |
@@ -123,7 +123,7 @@ See the `ViewDescriptor` interface in `plugin-api.d.ts` for full signatures.
 - `minHostVersion` — **MUST be the host `CFBundleShortVersionString`, NOT the SDK version**. Default to `"1.0.0"` unless you know you need more.
 - `author`, `description`, `license`, `homepage`
 - `activation.events` — currently only `"onStartup"` is supported
-- `permissions` — array from the 33-permission set above
+- `permissions` — array from the permission scopes listed above
 - `shellCommands` — allowlist of commands if `shell.execute` is declared
 - `shellDeniedPatterns` — regex denylist evaluated before the allowlist (fn-46)
 - `networkDomains` — allowlist of hostnames if `network.outbound` is declared
@@ -272,7 +272,7 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 
 WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel://` scheme. Use for rich interactive UI: forms, streaming progress, media playback, complex layouts.
 
-**Permission**: `ui.webPanel` (also `webview` for the runtime backing capability)
+**Permission**: `ui.webPanel`
 
 **Limits**: max 2 WebView panels per plugin, 6 globally.
 

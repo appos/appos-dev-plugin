@@ -40,7 +40,7 @@ Always depend on the official SDK packages instead of hand-writing types or util
 
 | Package | Purpose | Install |
 |---|---|---|
-| `@appos.space/plugin-types` | TypeScript types for `PluginContext`, manifest, all 22 namespaces, 33 permissions, design tokens. Declaration-only, zero runtime. | `devDependency` |
+| `@appos.space/plugin-types` | TypeScript types for `PluginContext`, manifest, all 22 namespaces, permission scopes, design tokens. Declaration-only, zero runtime. | `devDependency` |
 | `@appos.space/plugin-utils` | Pure helpers: `urlToPath`, `pathToUrl`, `fileExtension`, `formatSize`, `formatDate`, `generateId`, `debounce`, `throttle`, `createActionRouter`. | `dependency` |
 | `@appos.space/view-builders` | Typed helpers (`vstack`, `section`, `listItem`, `button`) that return plain `ViewDescriptor` objects. Zero runtime. | `dependency` |
 
