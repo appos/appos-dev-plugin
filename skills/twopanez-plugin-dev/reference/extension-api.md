@@ -38,11 +38,11 @@ declare module '@appos.space/plugin-types' {
 | `ctx.storage` | Scoped key-value storage (plaintext + keychain) | `keychain.plugin` for secure entries |
 | `ctx.settings` | Read user-configurable settings from manifest | (none) |
 | `ctx.extensionPoints` | Declare/contribute extension points for other plugins | `interPlugin.declare`, `interPlugin.contribute` |
-| `ctx.dataContracts` | Expose queryable data for other plugins | `interPlugin.query` |
-| `ctx.interPluginEvents` | Pub/sub between plugins | `interPlugin.emit` |
+| `ctx.dataContracts` | Expose queryable data for other plugins | `interPlugin.declare` (expose), `interPlugin.query` (query) |
+| `ctx.interPluginEvents` | Pub/sub between plugins | `interPlugin.declare` (declare), `interPlugin.emit` (emit/subscribe) |
 | `ctx.smartFolders` | Custom filter types for smart folders (fn-13) | `filesystem.read` |
 | `ctx.preview` | File preview registry queries | `filesystem.read` (per-method; `registerProvider` is core-only) |
-| `ctx.events` | Subscribe to navigation, pane activation, selection, app.willQuit, menubar.clicked | (none) |
+| `ctx.events` | Subscribe to navigation, pane activation, selection, app.willQuit, menubar.clicked | per-event (see `HostEventsAPI` in `plugin-api.d.ts`) |
 | `ctx.network` | HTTP fetch and file download | `network.outbound` / `network.unrestricted` |
 | `ctx.shell` | Execute allowed shell commands (streaming) | `shell.execute` |
 | `ctx.clipboard` | Read/write system clipboard | `clipboard.read`, `clipboard.write` |

@@ -361,10 +361,13 @@ If a required dependency is missing, show a "degraded banner" in the webview wit
 ## 10. Settings read with fallback
 
 ```ts
-function getOutputDir(ctx: PluginContext): string {
+async function getOutputDir(ctx: PluginContext): Promise<string> {
     const raw = ctx.settings.get('outputDir');
     if (typeof raw === 'string' && raw.length > 0) return raw;
-    return 'space.appos.myplugin-default';  // use manifest ID
+    // Fall back to active pane directory
+    const activeDir = await ctx.fileOps.getActiveDirectory();
+    if (activeDir) return urlToPath(activeDir);
+    throw new Error('outputDir setting is required when no active directory');
 }
 ```
 
@@ -674,20 +677,13 @@ button {
 const output = document.getElementById('output');
 const runBtn = document.getElementById('run');
 
-// Receive messages from plugin (postToWebPanel + pipeShellToWebPanel chunks)
+// Receive protocol messages from plugin via postToWebPanel
 window.twopanez.onMessage((msg) => {
-    if (msg.stream) {
-        // Shell chunk from pipeShellToWebPanel — has {stream, data, bytesTotal}
-        output.textContent += msg.data;
-        return;
-    }
-    // Protocol message from postToWebPanel — has {v, type, ...}
-    if (msg.v === 1) {
-        if (msg.type === 'started') output.textContent = '';
-        if (msg.type === 'output') output.textContent += msg.data;
-        if (msg.type === 'finished') {
-            output.textContent += `\n[exit ${msg.exitCode}]`;
-        }
+    if (typeof msg !== 'object' || msg === null || msg.v !== 1) return;
+    if (msg.type === 'started') output.textContent = '';
+    if (msg.type === 'output') output.textContent += msg.data;
+    if (msg.type === 'finished') {
+        output.textContent += `\n[exit ${msg.exitCode}]`;
     }
 });
 
@@ -708,8 +704,8 @@ checkStatus();
 - Register the SHORT id `main-panel` — runtime auto-prefixes to `{pluginId}.main-panel`
 - All JS and CSS are external files (CSP blocks inline `<script>` and `<style>`)
 - Use `window.twopanez.send()` / `.request()` for webview-to-plugin communication
-- Use `window.twopanez.onMessage()` to receive pushes from plugin + shell chunks
-- Shell chunks (`{ stream, data, bytesTotal }`) lack `v`/`type` — filter them in the bridge
+- Use `window.twopanez.onMessage()` to receive pushes from plugin via `postToWebPanel`
+- If also using `pipeShellToWebPanel`, shell chunks (`{ stream, data, bytesTotal }`) arrive via `onMessage` alongside protocol messages — filter by presence of `msg.stream`
 
 ## 18. Streaming shell to WebView pipe (pipeShellToWebPanel)
 
