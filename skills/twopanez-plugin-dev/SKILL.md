@@ -424,13 +424,16 @@ There are 33 permission scopes. Only request what you use. Common ones:
 - `ui.webPanel` — register WebView panels (required for `registerWebPanel`)
 - `ui.sidebar` — register sidebar panels (required for `registerPanel`)
 - `ui.contextMenu` — contribute to right-click menus
-- `ui.notifications` — toast/HUD/alert via `feedback` namespace
+- `ui.notifications` — legacy `ctx.ui.showNotification()` (NOT for `ctx.feedback`)
 - `ui.shortcuts` — keyboard shortcuts
 - `shell.execute` — run CLIs (must also list binary names in `shellCommands`)
 - `filesystem.read`, `filesystem.write` — file ops via `fileOps`
 - `clipboard.read`, `clipboard.write` — clipboard access
-- `cache`, `feedback`, `feedback.confirm`, `workspaces`, `menubar`, `smartFolders`
-- `network` — HTTP via `ctx.network.fetch` (also list domains in `networkDomains`)
+- `feedback` — `ctx.feedback.toast()`, `.hud()`, `.notify()`, `.systemNotification()`
+- `feedback.confirm` — `ctx.feedback.alert()` (blocking modal)
+- `network.outbound` — `ctx.network.fetch()` / `.download()` (also list domains in `networkDomains`)
+- `network.unrestricted` — unrestricted network access (no domain allowlist)
+- `cache`, `workspaces`, `menubar`, `smartFolders`
 - `webview` — the runtime capability that backs `ui.webPanel` / `pipeShellToWebPanel`
 
 The full list lives in `reference/plugin-api.d.ts` under `PermissionScope`.

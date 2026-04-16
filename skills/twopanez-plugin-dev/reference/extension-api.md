@@ -43,7 +43,7 @@ SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Conte
 
 ## The 33 permissions
 
-`@appos.space/plugin-types` defines exactly 33 permission scopes:
+`@appos.space/plugin-types` defines the following permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the canonical list):
 
 **UI** — `ui.sidebar`, `ui.statusBar`, `ui.contextMenu`, `ui.notifications`, `ui.sheets`, `ui.shortcuts`, `ui.themes`, `ui.preview`, `ui.aiChat`, `ui.webPanel`
 

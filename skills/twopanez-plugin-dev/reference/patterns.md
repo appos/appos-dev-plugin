@@ -361,7 +361,7 @@ If a required dependency is missing, show a "degraded banner" in the webview wit
 
 ```ts
 function getOutputDir(ctx: PluginContext): string {
-    const raw = ctx.settings.get<string>('outputDir');
+    const raw = ctx.settings.get('outputDir');
     if (typeof raw === 'string' && raw.length > 0) return raw;
     return `${ctx.pluginId}-default`;
 }
@@ -527,7 +527,7 @@ defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionS
     "entrypoint": "dist/main.js",
     "minHostVersion": "1.0.0",
     "activation": { "events": ["onStartup"] },
-    "permissions": ["ui.webPanel", "shell.execute", "cache", "feedback", "webview"],
+    "permissions": ["ui.webPanel", "shell.execute", "filesystem.read", "cache", "feedback", "webview"],
     "shellCommands": ["mytool"]
 }
 ```
@@ -536,6 +536,7 @@ defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionS
 
 ```ts
 import type { PluginContext } from '@appos.space/plugin-types';
+import { urlToPath } from '@appos.space/plugin-utils';
 
 const disposables: Array<() => void | Promise<void>> = [];
 
@@ -559,7 +560,10 @@ async function activate(ctx: PluginContext): Promise<void> {
 
     ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
         const msg = envelope.data;
-        if (msg?.type === 'get-status') {
+        if (typeof msg !== 'object' || msg === null || msg.v !== 1) {
+            return { v: 1, type: 'error', message: 'unsupported protocol version' };
+        }
+        if (msg.type === 'get-status') {
             return { v: 1, type: 'status', ready: true };
         }
         return { v: 1, type: 'error', message: 'unknown request' };
@@ -567,12 +571,17 @@ async function activate(ctx: PluginContext): Promise<void> {
 }
 
 async function runCommand(ctx: PluginContext, command: string, args: string[]): Promise<void> {
+    // T1 plugins must use cwd within active pane roots
+    const activeDir = await ctx.fileOps.getActiveDirectory();
+    const cwd = activeDir ? urlToPath(activeDir) : undefined;
+    if (!cwd) return;  // no active directory — cannot run
+
     ctx.ui.postToWebPanel('main-panel', { v: 1, type: 'started' });
 
     const result = await ctx.shell.execute({
         command,
         args,
-        cwd: '/tmp',
+        cwd,
         onData: (chunk) => {
             ctx.ui.postToWebPanel('main-panel', {
                 v: 1, type: 'output',
@@ -679,7 +688,7 @@ runBtn.addEventListener('click', () => {
 
 // Request/response example
 async function checkStatus() {
-    const result = await window.twopanez.request({ type: 'get-status' });
+    const result = await window.twopanez.request({ v: 1, type: 'get-status' });
     console.log('Plugin status:', result);
 }
 checkStatus();
