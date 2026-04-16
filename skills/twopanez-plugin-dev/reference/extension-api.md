@@ -83,6 +83,21 @@ Each has a `type` discriminator and a typed `properties` object. `listItem` also
 
 **`MenuAction`**: `{ title, icon?, action?, destructive? }`
 
+### New types (fn-48+)
+
+**`grid`** — Renders children in a `LazyVGrid` with flexible columns.
+- Properties: `columns` (number, default 3), `spacing` (number, default 8)
+- Children are rendered as grid items
+
+**`remoteImage`** — Loads an image from a URL (file:// only in Phase 1).
+- Properties: `url` (string), `width` (number), `height` (number), `cornerRadius` (number), `maxDimension` (number, default 512 — max pixel size for downsampling)
+
+**`textField`** — Editable text input field.
+- Properties: `placeholder` (string), `value` (string), `action` (string — fires on submit)
+
+**`progress`** — Determinate or indeterminate progress indicator.
+- Properties: `value` (number 0.0-1.0, omit for indeterminate), `label` (string), `style` ("bar" | "circular", default: "bar")
+
 See `views.d.ts` inside `plugin-api.d.ts` for full signatures.
 
 ## Plugin manifest
@@ -105,7 +120,67 @@ See `views.d.ts` inside `plugin-api.d.ts` for full signatures.
 - `menubar.icon`, `menubar.label`, `menubar.globalShortcut` — menu bar config (fn-41)
 - `categories`, `keywords` — Plugin Store metadata
 
-## Dependency lifecycle (fn-50)
+## Plugin dependencies (fn-50)
+
+### Manifest schema
+
+Declare system binary and plugin dependencies in `plugin.json`:
+
+```json
+{
+    "dependencies": {
+        "system": [
+            {
+                "name": "yt-dlp",
+                "required": true,
+                "check": {
+                    "command": "yt-dlp",
+                    "args": ["--version"],
+                    "versionPattern": "(\\d{4}\\.\\d{2}\\.\\d{2})"
+                },
+                "minVersion": "2024.08.06",
+                "installHint": "brew install yt-dlp",
+                "installUrl": "https://github.com/yt-dlp/yt-dlp#installation",
+                "description": "Video downloader"
+            },
+            {
+                "name": "ffmpeg",
+                "required": false,
+                "check": {
+                    "command": "ffmpeg",
+                    "args": ["-version"],
+                    "versionPattern": "ffmpeg version (\\d+\\.\\d+)"
+                },
+                "installHint": "brew install ffmpeg"
+            }
+        ],
+        "plugins": [
+            {
+                "id": "com.community.shared-utils",
+                "minVersion": "1.0.0",
+                "required": false
+            }
+        ]
+    }
+}
+```
+
+**`SystemDependency` fields:**
+- `name` — human-readable name
+- `check.command` — binary to execute (MUST be in `shellCommands` allowlist)
+- `check.args` — arguments for version check (e.g., `["--version"]`)
+- `check.versionPattern` — regex with one capture group to extract the version from stdout
+- `minVersion` — minimum version constraint string
+- `required` — whether the dependency is required (default: `true`)
+- `installHint` — shell command hint (e.g., `"brew install yt-dlp"`)
+- `installUrl` — URL to installation instructions (must start with `https://` or `http://`)
+- `description` — human-readable description of the dependency's purpose
+
+**`PluginDependency` fields:** `id`, `minVersion`, `required`
+
+The host probes system dependencies at activation time by running `check.command` + `check.args` via shell.
+
+### Dependency status
 
 `ctx.lifecycle.getDependencyStatus()` returns `DependencyStatus[]` reflecting each declared dependency:
 
@@ -121,6 +196,10 @@ See `views.d.ts` inside `plugin-api.d.ts` for full signatures.
 ```
 
 Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to install/uninstall at runtime.
+
+### Runtime query APIs — types only, runtime deferred
+
+> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet — they will reject or return empty results. Use `ctx.lifecycle.onDependencyStatusChanged(handler)` (which IS wired) to receive status updates pushed by the host at activation time. The host probes dependencies automatically; plugins do not need to trigger checks manually.
 
 ## Workspaces (fn-40)
 
@@ -161,14 +240,169 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 
 ## WebView panels (fn-48)
 
-See the `webview-panels` skill for the full authoring guide. Quick reference:
+WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel://` scheme. Use for rich interactive UI: forms, streaming progress, media playback, complex layouts.
 
-- `ctx.ui.registerWebPanel(id, { title, icon, htmlPath, allowNavigation, width })` — once per panel
-- `ctx.ui.postToWebPanel(id, message, { instanceId? })` — send to webview (broadcasts by default, targets a specific instance with `instanceId`)
-- `ctx.ui.onWebPanelMessage(id, (envelope) => ...)` — receive from webview; envelope has `data`, `instanceId`, `windowId`, `paneId`
-- `ctx.ui.pipeShellToWebPanel(id, { command, args, cwd, timeout })` — spawn a child and stream chunks directly to the webview (bypasses plugin main). **Lives on `ctx.ui`, NOT `ctx.shell`.**
+**Permission**: `ui.webPanel` (also `webview` for the runtime backing capability)
 
-**Limits**: max 2 WebView panels per plugin, 6 globally. Hard 120s timeout on `pipeShellToWebPanel`.
+**Limits**: max 2 WebView panels per plugin, 6 globally.
+
+### 5 APIs on `ctx.ui`
+
+1. **`registerWebPanel(id, options)`** — Registers a panel definition. Synchronous. WKWebView instances are created lazily when pane tabs open.
+
+   ```ts
+   ctx.ui.registerWebPanel('download', {
+       title: 'Downloads',
+       icon: 'arrow.down.circle',
+       htmlPath: 'webview/download/index.html',
+       allowNavigation: false,
+   });
+   ```
+
+   `WebPanelOptions`:
+   - `title` (string, required) — display title for the panel tab
+   - `icon` (string, optional) — SF Symbol name for the tab icon
+   - `htmlPath` (string, required) — relative path to HTML file within plugin bundle. Must not be absolute or contain `..`
+   - `allowNavigation` (boolean, default `false`) — whether the WebView can navigate away from the initial page
+   - `width` (number, optional) — preferred width in points (stored for future floating/popover use; pane tabs use full pane width)
+
+   The `id` is the SHORT identifier (e.g., `'download'`). The runtime auto-prefixes it with `{pluginId}.` to form the qualified ID.
+
+2. **`postToWebPanel(panelId, message, options?)`** — Sends a JSON message to all active WebView instances of a panel. Pass `{ instanceId }` to target a specific instance. Max message size: 1MB.
+
+3. **`onWebPanelMessage(panelId, handler)`** — Receives fire-and-forget messages sent from the WebView via `window.twopanez.send(data)`. The handler receives a `WebPanelMessage` envelope: `{ data, instanceId, windowId, paneId }`. One handler per panelId; calling again replaces the previous handler.
+
+4. **`onWebPanelRequest(panelId, handler)`** — Receives request/response messages sent from the WebView via `window.twopanez.request(data)`. The handler must return a value or Promise (10s timeout). The resolved value is sent back to the WebView as the return value of `request()`. One handler per panelId.
+
+5. **`pipeShellToWebPanel(panelId, shellOptions)`** — Spawns a shell command and streams `{ stream, data, bytesTotal }` chunks directly to all WebView instances of the panel. Returns the final `ShellExecuteResult` as a Promise. **Lives on `ctx.ui`, NOT `ctx.shell`.** Requires `ui.webPanel` + `shell.execute`. Hard 120s timeout — long jobs need resume loops.
+
+### Webview-side bridge (`window.twopanez`)
+
+The host injects `window.twopanez` into every plugin WebView:
+
+| Method/Property | Description |
+|---|---|
+| `window.twopanez.send(msg)` | Fire-and-forget message to plugin → `onWebPanelMessage` |
+| `window.twopanez.request(msg)` | Request/response to plugin → `onWebPanelRequest`, returns Promise |
+| `window.twopanez.onMessage(fn)` | Receive inbound push from `postToWebPanel` and `pipeShellToWebPanel` chunks |
+| `window.twopanez.instanceId` | Per-WKWebView UUID (multi-instance isolation) |
+| `window.twopanez.windowId` | App window ID |
+| `window.twopanez.paneId` | `"left"` or `"right"` |
+
+Shell chunks from `pipeShellToWebPanel` arrive via `onMessage` alongside `postToWebPanel` messages. Filter them in the bridge: chunks have `{ stream, data, bytesTotal }` without `v`/`type`.
+
+### CSP constraints
+
+WebView content is served via `plugin-panel://` with a Content Security Policy that **blocks inline `<script>` and `<style>` tags**. All JavaScript and CSS must be external files:
+
+```html
+<!-- CORRECT: external files -->
+<script type="module" src="app.js"></script>
+<link rel="stylesheet" href="styles.css">
+
+<!-- WRONG: inline — will be blocked by CSP, WebView renders blank -->
+<script>console.log('blocked')</script>
+<style>body { color: red; }</style>
+```
+
+### CSS custom properties
+
+The host injects CSS custom properties into every plugin WebView, mapped to the app's design system. They update at runtime when the theme changes (no page reload needed):
+
+| Property | Description | Default value |
+|---|---|---|
+| `--twopanez-bg` | Window background | `#0D1117` |
+| `--twopanez-bg-sidebar` | Sidebar background | `#0A0E14` |
+| `--twopanez-bg-control` | Control background | `#1C2128` |
+| `--twopanez-bg-surface` | Surface background | `#161B22` |
+| `--twopanez-bg-elevated` | Elevated surface | `#262C36` |
+| `--twopanez-accent` | Cyan accent | `#00D9FF` |
+| `--twopanez-accent-cortex` | Magenta accent | `#BD00FF` |
+| `--twopanez-accent-pulse` | Amber accent | `#FF6B35` |
+| `--twopanez-accent-signal` | Green accent | `#00FF9F` |
+| `--twopanez-accent-warning` | Gold warning | `#FFB800` |
+| `--twopanez-accent-error` | Red error | `#FF3366` |
+| `--twopanez-text` | Primary text | `#E6EDF3` |
+| `--twopanez-text-secondary` | Secondary text | `#8B949E` |
+| `--twopanez-text-muted` | Muted text | `#484F58` |
+| `--twopanez-text-ghost` | Ghost text | `#30363D` |
+
+```css
+body {
+    background-color: var(--twopanez-bg);
+    color: var(--twopanez-text);
+}
+.button { background-color: var(--twopanez-accent); }
+```
+
+## Streaming shell output (fn-47)
+
+`ctx.shell.execute()` supports an `onData` callback for real-time streaming output. When provided, chunks are delivered as the process writes to stdout/stderr. The final Promise still resolves with the full buffered result (subject to 10MB truncation), but `onData` sees all data including bytes beyond the truncation threshold.
+
+### ShellDataChunk
+
+```ts
+interface ShellDataChunk {
+    stream: "stdout" | "stderr";  // which pipe this chunk came from
+    data: string;                  // UTF-8 decoded text (may contain partial lines)
+    bytesTotal: number;            // running total of bytes on this stream
+}
+```
+
+### Buffered vs streaming patterns
+
+**Buffered (default)** — omit `onData`. The Promise resolves with `{ exitCode, stdout, stderr }` after process exit:
+
+```ts
+const result = await ctx.shell.execute({
+    command: 'yt-dlp', args: ['--version'],
+    cwd: '/tmp',
+});
+console.log(result.stdout.trim());  // "2024.08.06"
+```
+
+**Streaming** — provide `onData` for real-time progress:
+
+```ts
+await ctx.shell.execute({
+    command: 'yt-dlp',
+    args: ['--ignore-config', '--progress', '--newline', url],
+    cwd: outputDir,
+    onData: (chunk) => {
+        if (chunk.stream === 'stdout') {
+            const match = chunk.data.match(/(\d+\.?\d*)%/);
+            if (match) updateProgress(parseFloat(match[1]) / 100);
+        }
+    },
+});
+```
+
+Chunks arrive on the plugin's serial queue. If `onData` throws, the error is logged but the process continues — streaming is best-effort. Order is preserved per-stream but stdout/stderr interleaving is OS-dependent.
+
+## Shell security tiers (fn-46)
+
+Shell execution is governed by a three-tier security model:
+
+| Tier | Name | When | CWD restriction | Denied patterns | Allowlist |
+|---|---|---|---|---|---|
+| T0 | none | No `shell.execute` declared | N/A (calls rejected) | N/A | N/A |
+| T1 | contained | JS plugins with `shell.execute` but no filesystem-wide perms | CWD must be within active pane roots. `cwd` is **required** (omitting throws). | Enforced: destructive commands (`rm -rf`, `dd`, `shutdown`, etc.) are blocked. Shell metacharacter patterns (`$()`, backticks, pipe-to-shell) are checked when the command is a shell interpreter (`sh`, `bash`, `zsh`). | Enforced |
+| T2 | uncontained | Core-swift plugins or JS with `filesystem.readAll`/`writeAll` | No CWD restriction | Skipped | Enforced |
+
+**Allowlist**: All tiers enforce the `shellCommands` allowlist from `plugin.json`. Only commands listed there can be executed.
+
+### `shellDeniedPatterns` (manifest field)
+
+Plugins may declare `shellDeniedPatterns: string[]` in `plugin.json` to add custom regex guards. These are **merged** with the built-in defaults (never replacing them). Invalid regexes are logged and skipped at parse time.
+
+```json
+{
+    "shellDeniedPatterns": [
+        "\\bsudo\\b",
+        "--recursive.*--force"
+    ]
+}
+```
 
 ## Where to find exact signatures
 

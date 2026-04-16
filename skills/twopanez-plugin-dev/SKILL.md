@@ -116,6 +116,40 @@ The leading `;` on the globalThis assignments prevents ASI hazards when the prec
 
 The host caps WebView panels at **2 per plugin / 6 globally**. If your UI needs more surfaces, use view switching inside a panel or fall back to ViewDescriptor-based panels.
 
+### ViewDescriptor quick reference
+
+The SDK defines **17 ViewDescriptor types**: `vstack`, `hstack`, `scroll`, `list`, `grid`, `text`, `label`, `image`, `remoteImage`, `badge`, `button`, `listItem`, `textField`, `progress`, `section`, `divider`, `spacer`. Use `@appos.space/view-builders` for typed helpers.
+
+### WebView Panel Guidance
+
+**When to choose WebView over ViewDescriptor:**
+- Rich interactive UI: forms, tables, streaming terminal output, media playback, charts
+- Complex layouts that exceed what `vstack`/`hstack`/`grid` can express
+- Reuse of existing HTML/CSS/JS libraries
+
+**When to use ViewDescriptor instead:**
+- Simple sidebars, file annotations, status displays, settings panels
+- No need for custom styling or complex interaction
+- Lower overhead (no WKWebView process)
+
+**File structure for WebView panels:**
+
+```
+my-plugin/
+  src/main.ts           # registerWebPanel('main-panel', { htmlPath: 'webview/main/index.html' })
+  webview/
+    main/
+      index.html        # Entry point (NO inline <script> or <style> — CSP blocks them)
+      app.js            # External JS loaded via <script type="module" src="app.js">
+      styles.css        # External CSS loaded via <link rel="stylesheet" href="styles.css">
+```
+
+**Message bridge:** Use `window.twopanez.send(msg)` for fire-and-forget messages and `window.twopanez.request(msg)` for request/response. Receive host pushes via `window.twopanez.onMessage(fn)`. Version all messages with `v: 1` and discriminate by `type`.
+
+**CSP constraint:** Inline `<script>` and `<style>` are blocked by Content Security Policy. All JS and CSS must be external files. If the WebView renders blank, check for inline scripts first.
+
+**CSS custom properties:** The host injects `--twopanez-bg`, `--twopanez-text`, `--twopanez-accent`, and 12 other design tokens into every WebView. Use `var(--twopanez-bg)` instead of hardcoded colors. See `extension-api.md` for the full list.
+
 ## WebView panel pattern (rich UI)
 
 Register the panel in `activate()`, passing the bundle-relative path to the HTML:

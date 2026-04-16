@@ -504,6 +504,335 @@ To verify the actual host version:
 defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString
 ```
 
+## 17. WebView panel with message bridge
+
+**Full plugin structure** showing `plugin.json` + `src/main.ts` + `webview/main/` with external JS/CSS (CSP-compliant).
+
+### plugin.json
+
+```json
+{
+    "id": "space.appos.mytools",
+    "name": "My Tools",
+    "version": "1.0.0",
+    "runtime": "javascript",
+    "entrypoint": "dist/main.js",
+    "minHostVersion": "1.0.0",
+    "activation": { "events": ["onStartup"] },
+    "permissions": ["ui.webPanel", "shell.execute", "cache", "feedback", "webview"],
+    "shellCommands": ["mytool"]
+}
+```
+
+### src/main.ts
+
+```ts
+import type { PluginContext } from '@appos.space/plugin-types';
+
+const disposables: Array<() => void | Promise<void>> = [];
+
+async function activate(ctx: PluginContext): Promise<void> {
+    // Register with SHORT id — runtime auto-prefixes to {pluginId}.main-panel
+    ctx.ui.registerWebPanel('main-panel', {
+        title: 'My Tools',
+        icon: 'wrench',
+        htmlPath: 'webview/main/index.html',
+        allowNavigation: false,
+    });
+
+    ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
+        const msg = envelope.data;
+        if (typeof msg !== 'object' || msg === null || msg.v !== 1) return;
+
+        if (msg.type === 'run-command') {
+            runCommand(ctx, msg.command, msg.args);
+        }
+    });
+
+    ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
+        const msg = envelope.data;
+        if (msg?.type === 'get-status') {
+            return { v: 1, type: 'status', ready: true };
+        }
+        return { v: 1, type: 'error', message: 'unknown request' };
+    });
+}
+
+async function runCommand(ctx: PluginContext, command: string, args: string[]): Promise<void> {
+    ctx.ui.postToWebPanel('main-panel', { v: 1, type: 'started' });
+
+    const result = await ctx.shell.execute({
+        command,
+        args,
+        cwd: '/tmp',
+        onData: (chunk) => {
+            ctx.ui.postToWebPanel('main-panel', {
+                v: 1, type: 'output',
+                stream: chunk.stream,
+                data: chunk.data,
+            });
+        },
+    });
+
+    ctx.ui.postToWebPanel('main-panel', {
+        v: 1, type: 'finished',
+        exitCode: result.exitCode,
+    });
+}
+
+async function deactivate(): Promise<void> {
+    while (disposables.length) {
+        const d = disposables.pop();
+        try { await d?.(); } catch (err) { console.error('[plugin] Dispose error:', err); }
+    }
+}
+
+;(globalThis as any).activate = activate;
+;(globalThis as any).deactivate = deactivate;
+```
+
+### webview/main/index.html
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="output"></div>
+    <button id="run">Run</button>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
+```
+
+### webview/main/styles.css
+
+```css
+body {
+    margin: 0;
+    padding: 16px;
+    background-color: var(--twopanez-bg);
+    color: var(--twopanez-text);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+#output {
+    background: var(--twopanez-bg-surface);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    min-height: 200px;
+    overflow-y: auto;
+}
+
+button {
+    background: var(--twopanez-accent);
+    color: var(--twopanez-bg);
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    margin-top: 12px;
+    cursor: pointer;
+}
+```
+
+### webview/main/app.js
+
+```js
+const output = document.getElementById('output');
+const runBtn = document.getElementById('run');
+
+// Receive messages from plugin (postToWebPanel + pipeShellToWebPanel chunks)
+window.twopanez.onMessage((msg) => {
+    if (msg.stream) {
+        // Shell chunk from pipeShellToWebPanel — has {stream, data, bytesTotal}
+        output.textContent += msg.data;
+        return;
+    }
+    // Protocol message from postToWebPanel — has {v, type, ...}
+    if (msg.v === 1) {
+        if (msg.type === 'started') output.textContent = '';
+        if (msg.type === 'output') output.textContent += msg.data;
+        if (msg.type === 'finished') {
+            output.textContent += `\n[exit ${msg.exitCode}]`;
+        }
+    }
+});
+
+runBtn.addEventListener('click', () => {
+    // Fire-and-forget message to plugin
+    window.twopanez.send({ v: 1, type: 'run-command', command: 'mytool', args: ['--version'] });
+});
+
+// Request/response example
+async function checkStatus() {
+    const result = await window.twopanez.request({ type: 'get-status' });
+    console.log('Plugin status:', result);
+}
+checkStatus();
+```
+
+**Key points:**
+- Register the SHORT id `main-panel` — runtime auto-prefixes to `{pluginId}.main-panel`
+- All JS and CSS are external files (CSP blocks inline `<script>` and `<style>`)
+- Use `window.twopanez.send()` / `.request()` for webview-to-plugin communication
+- Use `window.twopanez.onMessage()` to receive pushes from plugin + shell chunks
+- Shell chunks (`{ stream, data, bytesTotal }`) lack `v`/`type` — filter them in the bridge
+
+## 18. Streaming shell to WebView pipe (pipeShellToWebPanel)
+
+For real-time CLI output in a WebView, use `ctx.ui.pipeShellToWebPanel()` instead of manual `onData` + `postToWebPanel`. The host streams chunks directly to the WebView, bypassing the plugin's JS thread.
+
+### src/main.ts
+
+```ts
+async function runWithPipe(ctx: PluginContext, url: string, outputDir: string): Promise<void> {
+    // Chunks go directly to the WebView — no onData needed
+    const result = await ctx.ui.pipeShellToWebPanel('output', {
+        command: 'yt-dlp',
+        args: ['--ignore-config', '--newline', '--progress', url],
+        cwd: outputDir,      // MUST be absolute, tilde-expanded (T1 sandbox)
+        timeout: 119,        // host hard-caps at 120s; leave headroom
+    });
+
+    // Send final status via postToWebPanel (chunks only carry raw output)
+    ctx.ui.postToWebPanel('output', {
+        v: 1,
+        type: 'finished',
+        exitCode: result.exitCode,
+    });
+}
+```
+
+### webview/output/app.js
+
+```js
+const terminal = document.getElementById('terminal');
+
+window.twopanez.onMessage((msg) => {
+    // Shell chunks: { stream: "stdout"|"stderr", data: string, bytesTotal: number }
+    if (msg.stream) {
+        const span = document.createElement('span');
+        span.className = msg.stream === 'stderr' ? 'stderr' : 'stdout';
+        span.textContent = msg.data;
+        terminal.appendChild(span);
+        terminal.scrollTop = terminal.scrollHeight;
+        return;
+    }
+    // Protocol messages from postToWebPanel
+    if (msg.v === 1 && msg.type === 'finished') {
+        terminal.textContent += `\n[Process exited with code ${msg.exitCode}]`;
+    }
+});
+```
+
+**Critical gotchas:**
+- Method is `ctx.ui.pipeShellToWebPanel`, NOT `ctx.shell.pipeShellToWebPanel`
+- 120s hard cap — long-running jobs need a resume loop with `--continue`-style flags
+- `cwd` must be an absolute expanded path (no `~`) — T1 sandbox rejects relative paths
+- Always pass `--ignore-config` or equivalent to neutralize ambient user config
+- Chunks fan out to ALL instances of the panel; use `window.twopanez.instanceId` for per-instance filtering if needed
+
+## 19. Dependency-aware manifest
+
+Declare system dependencies so the host auto-checks them at activation and reports status to your UI.
+
+### plugin.json
+
+```json
+{
+    "id": "space.appos.imagetools",
+    "name": "Image Tools",
+    "version": "1.0.0",
+    "runtime": "javascript",
+    "entrypoint": "dist/main.js",
+    "minHostVersion": "1.0.0",
+    "activation": { "events": ["onStartup"] },
+    "permissions": ["ui.webPanel", "shell.execute", "cache", "feedback", "webview"],
+    "shellCommands": ["convert", "ffmpeg"],
+    "shellDeniedPatterns": ["\\bsudo\\b"],
+    "dependencies": {
+        "system": [
+            {
+                "name": "ImageMagick",
+                "required": true,
+                "check": {
+                    "command": "convert",
+                    "args": ["--version"],
+                    "versionPattern": "ImageMagick (\\d+\\.\\d+\\.\\d+)"
+                },
+                "minVersion": "7.0.0",
+                "installHint": "brew install imagemagick",
+                "installUrl": "https://imagemagick.org/script/download.php",
+                "description": "Image conversion and manipulation"
+            },
+            {
+                "name": "ffmpeg",
+                "required": false,
+                "check": {
+                    "command": "ffmpeg",
+                    "args": ["-version"],
+                    "versionPattern": "ffmpeg version (\\d+\\.\\d+)"
+                },
+                "installHint": "brew install ffmpeg",
+                "description": "Video/audio processing (optional, enables GIF export)"
+            }
+        ],
+        "plugins": [
+            {
+                "id": "com.community.shared-utils",
+                "minVersion": "1.0.0",
+                "required": false
+            }
+        ]
+    }
+}
+```
+
+### src/main.ts (dependency status handling)
+
+```ts
+import type { PluginContext, DependencyStatus } from '@appos.space/plugin-types';
+
+async function activate(ctx: PluginContext): Promise<void> {
+    // Subscribe BEFORE first status check so you never miss an in-flight update
+    disposables.push(ctx.lifecycle.onDependencyStatusChanged((statuses) => {
+        updateDependencyBanner(ctx, statuses);
+    }));
+
+    // Note: getDependencyStatus() and recheckDependencies() are defined in
+    // plugin-api.d.ts but runtime support is deferred — do NOT call them yet.
+    // The host pushes initial status via onDependencyStatusChanged at activation.
+}
+
+function updateDependencyBanner(ctx: PluginContext, statuses: DependencyStatus[]): void {
+    const missing = statuses.filter((s) => s.required && !s.satisfied);
+    if (missing.length > 0) {
+        ctx.ui.postToWebPanel('main-panel', {
+            v: 1,
+            type: 'dependency-status',
+            missing: missing.map((s) => ({
+                name: s.name,
+                installHint: s.installHint,
+                installUrl: s.installUrl,
+            })),
+        });
+    }
+}
+```
+
+**Key points:**
+- `check.command` MUST be in `shellCommands` allowlist — otherwise the status is `"command_not_allowed"`
+- `versionPattern` uses one capture group to extract the version string from stdout
+- `shellDeniedPatterns` are custom regexes merged with built-in defaults (never replacing them)
+- Subscribe to `onDependencyStatusChanged` BEFORE reading status — canonical ordering from `appos-plugin-ytdlp`
+- `getDependencyStatus()` and `recheckDependencies()` are types only, runtime deferred — do NOT call these APIs yet
+
 ## Further reading
 
 - **`plugin-api.d.ts`** in this directory — consolidated type definitions
