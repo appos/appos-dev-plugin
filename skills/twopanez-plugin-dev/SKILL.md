@@ -524,7 +524,7 @@ Then restart AppOS to pick up the new plugin (plugins are loaded at startup).
 ## Reference files
 
 For the full API, read these in `reference/`:
-- `plugin-api.d.ts` — Live TypeScript type definitions synced from `@appos.space/plugin-types` (~1500 lines, 22 namespaces).
+- `plugin-api.d.ts` — Live TypeScript type definitions synced from `@appos.space/plugin-types` (~2950 lines, 22 namespaces).
 - `patterns.md` — Canonical patterns extracted from `appos-plugin-ytdlp` (activation ordering, disposable tracking, message typing, resume loops, multi-instance isolation).
 - `extension-api.md` — Human-readable API walkthrough for namespaces, manifest fields, and permissions.
 

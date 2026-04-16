@@ -12,7 +12,7 @@ description: >
 
 Build native SwiftUI views for 2Panez plugins using JSON ViewDescriptor trees. Each node has a `type`, optional `properties`, and optional `children`. The host maps these to SwiftUI components.
 
-## All 13 types
+## All 17 types
 
 ### Layout containers
 
@@ -22,6 +22,7 @@ Build native SwiftUI views for 2Panez plugins using JSON ViewDescriptor trees. E
 | `hstack` | — | Horizontal stack. Use for toolbar rows, inline elements. |
 | `scroll` | `axes` ("horizontal"/"vertical") | Wrap outer vstack for scrollable panels. |
 | `list` | — | VStack container, functionally identical. |
+| `grid` | `columns` (default 3), `spacing` (default 8) | LazyVGrid with flexible columns. Children render as grid items. |
 
 ### Content elements
 
@@ -30,6 +31,7 @@ Build native SwiftUI views for 2Panez plugins using JSON ViewDescriptor trees. E
 | `text` | `content`, `font`, `width`, `align`, `mono`, `tooltip` | Fixed-width columns when `width` set. |
 | `label` | `title`, `icon`, `font` | Icon + text pair. Use for status/info rows. |
 | `image` | `systemName` | SF Symbol icon. |
+| `remoteImage` | `url`, `width`, `height`, `cornerRadius`, `maxDimension` (default 512) | Loads image from URL (file:// only in Phase 1). `maxDimension` caps pixel size for downsampling. |
 | `badge` | `text`/`content`, `color` | Capsule label. |
 
 ### Interactive elements
@@ -38,6 +40,8 @@ Build native SwiftUI views for 2Panez plugins using JSON ViewDescriptor trees. E
 |------|-----------|-------|
 | `button` | `title`, `action`, `tooltip`, `width` | With `width`: inline action button with hover. |
 | `listItem` | `title`, `subtitle`, `icon`, `iconColor`, `action`, `menuActions`, `children` | Primary row type. |
+| `textField` | `placeholder`, `value`, `action` | Editable text input. Action fires on submit. |
+| `progress` | `value` (0.0-1.0), `label`, `style` ("bar"/"circular") | Omit `value` for indeterminate. Default style: "bar". |
 | `section` | `title`, `icon`, `badge`, `isExpanded`, `id`, `children` | Collapsible group. |
 
 ### Structural
