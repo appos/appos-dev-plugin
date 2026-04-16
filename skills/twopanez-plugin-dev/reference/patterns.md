@@ -203,14 +203,14 @@ export async function registerWorkspace(ctx: PluginContext): Promise<() => void>
         source: { type: 'plugin', pluginId: ctx.pluginId },
         leftPane: {
             tabs: [
-                { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'download' },
+                { type: 'pluginPanel', panelId: 'download' },
                 { type: 'terminal' },
             ],
             activeTab: 0,
         },
         rightPane: {
             tabs: [
-                { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'library' },
+                { type: 'pluginPanel', panelId: 'library' },
                 { type: 'fileBrowser' },
                 { type: 'webBrowser' },
             ],
@@ -808,10 +808,12 @@ Declare system dependencies so the host auto-checks them at activation and repor
 import type { PluginContext, DependencyStatus } from '@appos.space/plugin-types';
 
 async function activate(ctx: PluginContext): Promise<void> {
-    // Subscribe BEFORE first status check so you never miss an in-flight update
-    disposables.push(ctx.lifecycle.onDependencyStatusChanged((statuses) => {
+    // Subscribe early so you never miss the initial status push at activation.
+    // onDependencyStatusChanged returns a string token (NOT a disposer function).
+    // No unsubscribe API exists yet — the host auto-cleans on plugin deactivation.
+    const depToken = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
         updateDependencyBanner(ctx, statuses);
-    }));
+    });
 
     // Note: getDependencyStatus() and recheckDependencies() are defined in
     // plugin-api.d.ts but runtime support is deferred — do NOT call them yet.

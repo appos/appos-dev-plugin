@@ -110,7 +110,7 @@ The leading `;` on the globalThis assignments prevents ASI hazards when the prec
 | Keyboard shortcuts | `ctx.shortcuts.register({ commandId, keys })` | — | Must bind to an already-registered `ctx.commands.register()`. |
 | Persistent state (queue, library, history) | `ctx.cache.set(key, value, { persist: true })` | SQLite write-through | Default is memory-only — pass `persist: true` for durability. `cache.get()` returns deserialized values — do NOT `JSON.parse`. |
 | Run a CLI with streaming output | `ctx.ui.pipeShellToWebPanel(panelId, shellOpts)` | Chunks flow into the webview | **Method lives on `ctx.ui`, NOT `ctx.shell`.** Hard 120s timeout — use resume-loops for long jobs. |
-| Re-check system deps after install | `ctx.lifecycle.recheckDependencies()` | — | Pair with `onDependencyStatusChanged()` for reactive banners. |
+| React to dependency changes | `ctx.lifecycle.onDependencyStatusChanged(fn)` | — | Host pushes status at activation. `getDependencyStatus()` / `recheckDependencies()` are types-only — do NOT call. |
 
 ### Two WebView panels maximum per plugin
 

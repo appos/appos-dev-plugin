@@ -214,14 +214,14 @@ await ctx.workspaces.register({
     source: { type: 'plugin', pluginId: ctx.pluginId },
     leftPane: {
         tabs: [
-            { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'download' },
+            { type: 'pluginPanel', panelId: 'download' },
             { type: 'terminal' },
         ],
         activeTab: 0,
     },
     rightPane: {
         tabs: [
-            { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'library' },
+            { type: 'pluginPanel', panelId: 'library' },
             { type: 'fileBrowser' },
             { type: 'webBrowser' },
         ],
@@ -242,13 +242,17 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 
 ## Cache (fn-41)
 
-`ctx.cache.get(key)` returns the **deserialized** value (no `JSON.parse` needed — the host handles it). `ctx.cache.set(key, value, { persist: true, ttl: '1h' })` writes with durability. Memory + SQLite tiers are merged transparently.
+`ctx.cache.get(key)` returns the **deserialized** value (no `JSON.parse` needed — the host handles it). `ctx.cache.set(key, value, { persist: true, ttl: 3600 })` writes with durability. `ttl` is in **seconds** (number, not a duration string). Memory + SQLite tiers are merged transparently.
 
 ## Feedback (fn-41)
 
-- `ctx.feedback.toast(message, { tone: 'info' | 'success' | 'error' })` — non-modal
-- `ctx.feedback.confirm({ title, message, confirmText, destructive })` — modal confirmation
-- `ctx.feedback.log(level, message)` — persistent log entry
+- `ctx.feedback.toast(message, { kind: 'info' | 'success' | 'warning' | 'error' })` — always shows a toast
+- `ctx.feedback.hud(message, { kind?, progress? })` — always shows a HUD panel; returns handle ID
+- `ctx.feedback.updateHud(id, { progress?, message? })` — updates an existing HUD
+- `ctx.feedback.dismissHud(id)` — dismisses a HUD panel
+- `ctx.feedback.alert(message, { informativeText?, buttons?, style? })` — shows an NSAlert; returns 0-based button index. Requires `feedback.confirm` permission.
+- `ctx.feedback.systemNotification(title, message, { kind? })` — always sends a system notification
+- `ctx.feedback.notify(message, { kind? })` — adaptive routing: focused window -> toast, unfocused -> HUD, background -> system notification
 
 ## WebView panels (fn-48)
 

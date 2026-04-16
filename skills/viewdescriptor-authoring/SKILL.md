@@ -178,7 +178,6 @@ context.ui.registerPanel("my-panel", {
     icon: "puzzlepiece.extension",
     position: "bottom",   // "top" or "bottom"
     priority: 100,         // lower = higher in sidebar
-    badge: count > 0 ? "" + count : undefined,
     view: { type: "scroll", children: [{ type: "vstack", children }] },
     handler: (action: string) => { /* route all actions here */ }
 });
