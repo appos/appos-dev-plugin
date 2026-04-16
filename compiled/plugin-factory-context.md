@@ -116,7 +116,7 @@ The leading `;` on the globalThis assignments prevents ASI hazards when the prec
 
 | Need | API | Rendering | Notes |
 |---|---|---|---|
-| Rich forms, streaming progress, media playback | `ctx.ui.registerWebPanel()` | WKWebView | Bundle HTML/CSS/JS under `webview/<panel>/`. Use for yt-dlp-style UIs. |
+| Rich forms, streaming progress, media playback | `ctx.ui.registerWebPanel()` | WKWebView | Bundle HTML/CSS/JS under `panels/<panel>/`. Use for yt-dlp-style UIs. |
 | Lightweight sidebar (file annotations, git status, file stats) | `ctx.ui.registerPanel()` | SwiftUI via ViewDescriptor | Cheap, reactive, composes well. |
 | Activity bar icon + sidebar | `ctx.ui.registerActivityView()` | SwiftUI via ViewDescriptor | Use for primary feature entry points. |
 | Menu bar status item (with badge) | `ctx.menubar.register()` / `setBadge()` | NSStatusItem | Subscribe to `menubar.clicked` event to handle clicks. |
@@ -152,8 +152,8 @@ The SDK defines **17 ViewDescriptor types**: `vstack`, `hstack`, `scroll`, `list
 
 ```
 my-plugin/
-  src/main.ts           # registerWebPanel('main-panel', { htmlPath: 'webview/main/index.html' })
-  webview/
+  src/main.ts           # registerWebPanel('main-panel', { htmlPath: 'panels/main/index.html' })
+  panels/
     main/
       index.html        # Entry point (NO inline <script> or <style> — CSP blocks them)
       app.js            # External JS loaded via <script type="module" src="app.js">
@@ -174,7 +174,7 @@ Register the panel in `activate()`, passing the bundle-relative path to the HTML
 ctx.ui.registerWebPanel('download', {
     title: 'Downloads',
     icon: 'arrow.down.circle',
-    htmlPath: 'webview/download/index.html',
+    htmlPath: 'panels/download/index.html',
     allowNavigation: false,
 });
 
@@ -184,7 +184,7 @@ ctx.ui.onWebPanelMessage('download', (envelope) => {
 });
 ```
 
-The `htmlPath` resolves **relative to the plugin root at runtime**, so the `webview/` tree MUST ship with the installed plugin (do not exclude it from rsync). All JS/CSS must be external files — CSP blocks inline `<script>` and `<style>`.
+The `htmlPath` resolves **relative to the plugin root at runtime**, so the `panels/` tree MUST ship with the installed plugin (do not exclude it from rsync). All JS/CSS must be external files — CSP blocks inline `<script>` and `<style>`.
 
 ### Webview-side bridge
 
@@ -199,7 +199,7 @@ window.twopanez.windowId         // app window ID
 window.twopanez.paneId           // "left" | "right"
 ```
 
-Wrap this in a thin `bridge.js` module per plugin (see `appos-plugin-ytdlp/webview/shared/bridge.js` for the canonical pattern, including how to split "protocol messages" from "shell chunks" into separate listener buckets).
+Wrap this in a thin `bridge.js` module per plugin (see `appos-plugin-ytdlp/panels/shared/bridge.js` for the canonical pattern, including how to split "protocol messages" from "shell chunks" into separate listener buckets).
 
 ### pipeShellToWebPanel (direct CLI → WebView streaming)
 
@@ -516,7 +516,7 @@ rsync -av --delete --delete-excluded \
 **Critical flags:**
 - `--delete` removes files on dest that are absent on source.
 - `--delete-excluded` removes files matching `--exclude` patterns on dest. **Without it**, files you added to `--exclude` stay on dest forever if they were copied on a previous deploy — this bit us during the ytdlp ship.
-- Ship `dist/main.js`, `plugin.json`, `webview/`, `assets/`, `README.md`, `LICENSE`, `CHANGELOG.md`. Exclude `src/`, tests, build config, dev docs, `.flow/`, `.git/`.
+- Ship `dist/main.js`, `plugin.json`, `panels/`, `assets/`, `README.md`, `LICENSE`, `CHANGELOG.md`. Exclude `src/`, tests, build config, dev docs, `.flow/`, `.git/`.
 
 Then restart AppOS to pick up the new plugin (plugins are loaded at startup).
 
@@ -838,7 +838,7 @@ WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel:/
    ctx.ui.registerWebPanel('download', {
        title: 'Downloads',
        icon: 'arrow.down.circle',
-       htmlPath: 'webview/download/index.html',
+       htmlPath: 'panels/download/index.html',
        allowNavigation: false,
    });
    ```
@@ -1073,7 +1073,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
     ctx.ui.registerWebPanel('download', {
         title: 'Downloads',
         icon: 'arrow.down.circle',
-        htmlPath: 'webview/download/index.html',
+        htmlPath: 'panels/download/index.html',
         allowNavigation: false,
     });
 
@@ -1527,7 +1527,7 @@ defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionS
 
 ## 17. WebView panel with plugin-to-webview messaging
 
-**Full plugin structure** showing `plugin.json` + `src/main.ts` + `webview/main/` with external JS/CSS (CSP-compliant).
+**Full plugin structure** showing `plugin.json` + `src/main.ts` + `panels/main/` with external JS/CSS (CSP-compliant).
 
 ### plugin.json
 
@@ -1558,7 +1558,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     ctx.ui.registerWebPanel('main-panel', {
         title: 'My Tools',
         icon: 'wrench',
-        htmlPath: 'webview/main/index.html',
+        htmlPath: 'panels/main/index.html',
         allowNavigation: false,
     });
 
@@ -1630,7 +1630,7 @@ async function deactivate(): Promise<void> {
 ;(globalThis as any).deactivate = deactivate;
 ```
 
-### webview/main/index.html
+### panels/main/index.html
 
 ```html
 <!DOCTYPE html>
@@ -1647,7 +1647,7 @@ async function deactivate(): Promise<void> {
 </html>
 ```
 
-### webview/main/styles.css
+### panels/main/styles.css
 
 ```css
 body {
@@ -1680,7 +1680,7 @@ button {
 }
 ```
 
-### webview/main/app.js
+### panels/main/app.js
 
 ```js
 const output = document.getElementById('output');
@@ -1741,7 +1741,7 @@ async function runWithPipe(ctx: PluginContext, url: string, outputDir: string): 
 }
 ```
 
-### webview/output/app.js
+### panels/output/app.js
 
 ```js
 const terminal = document.getElementById('terminal');

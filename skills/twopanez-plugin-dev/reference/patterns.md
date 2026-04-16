@@ -64,7 +64,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
     ctx.ui.registerWebPanel('download', {
         title: 'Downloads',
         icon: 'arrow.down.circle',
-        htmlPath: 'webview/download/index.html',
+        htmlPath: 'panels/download/index.html',
         allowNavigation: false,
     });
 
@@ -518,7 +518,7 @@ defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionS
 
 ## 17. WebView panel with plugin-to-webview messaging
 
-**Full plugin structure** showing `plugin.json` + `src/main.ts` + `webview/main/` with external JS/CSS (CSP-compliant).
+**Full plugin structure** showing `plugin.json` + `src/main.ts` + `panels/main/` with external JS/CSS (CSP-compliant).
 
 ### plugin.json
 
@@ -549,7 +549,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     ctx.ui.registerWebPanel('main-panel', {
         title: 'My Tools',
         icon: 'wrench',
-        htmlPath: 'webview/main/index.html',
+        htmlPath: 'panels/main/index.html',
         allowNavigation: false,
     });
 
@@ -621,7 +621,7 @@ async function deactivate(): Promise<void> {
 ;(globalThis as any).deactivate = deactivate;
 ```
 
-### webview/main/index.html
+### panels/main/index.html
 
 ```html
 <!DOCTYPE html>
@@ -638,7 +638,7 @@ async function deactivate(): Promise<void> {
 </html>
 ```
 
-### webview/main/styles.css
+### panels/main/styles.css
 
 ```css
 body {
@@ -671,7 +671,7 @@ button {
 }
 ```
 
-### webview/main/app.js
+### panels/main/app.js
 
 ```js
 const output = document.getElementById('output');
@@ -732,7 +732,7 @@ async function runWithPipe(ctx: PluginContext, url: string, outputDir: string): 
 }
 ```
 
-### webview/output/app.js
+### panels/output/app.js
 
 ```js
 const terminal = document.getElementById('terminal');

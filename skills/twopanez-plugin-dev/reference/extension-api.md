@@ -284,7 +284,7 @@ WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel:/
    ctx.ui.registerWebPanel('download', {
        title: 'Downloads',
        icon: 'arrow.down.circle',
-       htmlPath: 'webview/download/index.html',
+       htmlPath: 'panels/download/index.html',
        allowNavigation: false,
    });
    ```
