@@ -203,17 +203,29 @@ Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to in
 
 ## Workspaces (fn-40)
 
-`ctx.workspaces.register(template)` registers a template defining a dual-pane layout:
+`ctx.workspaces.register(template)` registers a template defining a dual-pane layout. Returns `Promise<string>` (the workspace ID).
 
 ```ts
-ctx.workspaces.register({
+await ctx.workspaces.register({
+    schemaVersion: 1,
     id: 'ytdlp-workspace',
     name: 'Downloads',
     icon: 'arrow.down.circle',
     source: { type: 'plugin', pluginId: ctx.pluginId },
-    layout: {
-        left:  { panels: [{ type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'download' }, { type: 'terminal' }] },
-        right: { panels: [{ type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'library' }, { type: 'fileBrowser' }, { type: 'webBrowser' }] },
+    leftPane: {
+        tabs: [
+            { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'download' },
+            { type: 'terminal' },
+        ],
+        activeTab: 0,
+    },
+    rightPane: {
+        tabs: [
+            { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'library' },
+            { type: 'fileBrowser' },
+            { type: 'webBrowser' },
+        ],
+        activeTab: 0,
     },
 });
 ```
@@ -222,11 +234,11 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 
 ## Menu bar (fn-41)
 
-`ctx.menubar.register({ icon, label?, globalShortcut? })` adds an NSStatusItem to the system menu bar. Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks. Use `ctx.menubar.setBadge(count)` to update the badge text.
+`ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears).
 
 ## Smart folders (fn-13)
 
-`ctx.smartFolders.registerFilterType({ id, name, icon, schema, evaluate })` adds a custom filter type to the smart-folder filter picker. The `evaluate` closure runs **synchronously** against each `PluginFileDescriptor` — keep it cheap.
+`ctx.smartFolders.registerFilterType({ id, displayName, editorConfig?, evaluate })` registers a custom filter type in `FilterTypeRegistry`. Returns `Promise<string>` (the namespaced filter type ID `{pluginId}.filter.{id}`). The `evaluate` closure runs **synchronously** against each item `{ url: string, metadata: Record<string, unknown> }` — keep it cheap. There is no unregister API; filters auto-clean on plugin deactivation. Use a `disposed` flag in the closure to guard against late calls.
 
 ## Cache (fn-41)
 

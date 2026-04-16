@@ -313,7 +313,7 @@ ctx.commands.register('open-download-panel', {
 });
 ```
 
-**Re-register on settings change**: for paths that depend on settings (like `fileBrowser.path`), subscribe via `ctx.settings.onKeyChange()` and call `workspaces.register()` again with the updated template. The SDK method returns a string token OR a disposer function — handle both.
+**Re-register on settings change**: for paths that depend on settings (like `fileBrowser.path`), subscribe via `ctx.settings.onKeyChange()` and call `workspaces.register()` again with the updated template. `register()` returns `Promise<string>` (the workspace ID).
 
 ## Menu bar (fn-41)
 
@@ -324,9 +324,10 @@ await ctx.menubar.setBadge(activeCount);  // 0 clears
 const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
     await ctx.workspaces.apply('ytdlp-dual-pane');
 });
+// Cleanup: ctx.events.unsubscribe(clickToken)
 ```
 
-Drive `setBadge` from your state `subscribe()` so it stays reactive. Cleanup order: unsubscribe state → unsubscribe `menubar.clicked` → `menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
+`ctx.menubar.register({ icon, label? })` — only `icon` and `label` are supported in `MenuBarRegisterOptions`. Drive `setBadge` from your state `subscribe()` so it stays reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
 
 ## Smart folder filters (fn-13)
 
@@ -342,29 +343,26 @@ const unsubState = subscribe(() => {
 await ctx.smartFolders.registerFilterType({
     id: 'favorites',           // auto-prefixed with `{pluginId}.filter.`
     displayName: 'Favorites',
-    evaluate: ({ url }) => favoritesByUrl.get(url) === true,
+    evaluate: (item: { url: string; metadata: Record<string, unknown> }) =>
+        favoritesByUrl.get(item.url) === true,
 });
 ```
 
-**Important**: there's no `unregisterFilterType`. Filters auto-clean on plugin unload. Set a `disposed` flag in the disposer so any late `evaluate` calls return `false` safely.
+`registerFilterType` returns `Promise<string>` (the namespaced ID). There is no `unregisterFilterType` — filters auto-clean on plugin deactivation. Set a `disposed` flag in the closure so any late `evaluate` calls return `false` safely.
 
 ## Lifecycle + dependency management (fn-50)
 
-Declare system/plugin dependencies in `plugin.json.dependencies`. The host probes them at activation and reports status via `ctx.lifecycle`:
+Declare system/plugin dependencies in `plugin.json.dependencies`. The host probes them at activation and pushes status via `ctx.lifecycle.onDependencyStatusChanged`:
 
 ```ts
-const statuses = await ctx.lifecycle.getDependencyStatus();
-// DependencyStatus[]: { name, type, required, satisfied, state, installedVersion, installHint, ... }
-
-ctx.lifecycle.onDependencyStatusChanged((statuses) => {
+// Subscribe early so you never miss the initial status push at activation
+const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
+    // DependencyStatus[]: { name, type, required, satisfied, state, installedVersion, installHint, ... }
     // Update UI banner, resume paused work if deps just became available
 });
-
-// After user follows install instructions:
-await ctx.lifecycle.recheckDependencies();
 ```
 
-**Subscribe to `onDependencyStatusChanged` BEFORE your first `getDependencyStatus` call** so you never miss an in-flight update. See `appos-plugin-ytdlp/src/main.ts` step 9 for the canonical ordering.
+> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet. Use `onDependencyStatusChanged` (which IS wired) to receive status updates pushed by the host. See `appos-plugin-ytdlp/src/main.ts` step 9 for the canonical pattern.
 
 ## plugin.json manifest
 

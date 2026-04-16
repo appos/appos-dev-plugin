@@ -25,7 +25,8 @@ async function activate(ctx: PluginContext): Promise<void> {
     disposables.push(await registerLibraryPanel(ctx));
     disposables.push(await registerWorkspace(ctx));
     disposables.push(await registerMenubar(ctx));
-    disposables.push(ctx.events.subscribe('app.willQuit', flushState));
+    const quitToken = ctx.events.subscribe('app.willQuit', flushState);
+    disposables.push(() => ctx.events.unsubscribe(quitToken));
 
     console.log(`[${ctx.pluginId}] ready`);
 }
@@ -192,32 +193,35 @@ import type { PluginContext } from '@appos.space/plugin-types';
 
 export const WORKSPACE_ID = 'ytdlp-workspace';
 
-export function registerWorkspace(ctx: PluginContext): () => void {
-    const disposer = ctx.workspaces.register({
+export async function registerWorkspace(ctx: PluginContext): Promise<() => void> {
+    // register() returns Promise<string> (the workspace ID)
+    await ctx.workspaces.register({
+        schemaVersion: 1,
         id: WORKSPACE_ID,
         name: 'Downloads',
         icon: 'arrow.down.circle',
         source: { type: 'plugin', pluginId: ctx.pluginId },
-        layout: {
-            left: {
-                panels: [
-                    { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'download' },
-                    { type: 'terminal' },
-                ],
-            },
-            right: {
-                panels: [
-                    { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'library' },
-                    { type: 'fileBrowser' },
-                    { type: 'webBrowser' },
-                ],
-            },
+        leftPane: {
+            tabs: [
+                { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'download' },
+                { type: 'terminal' },
+            ],
+            activeTab: 0,
+        },
+        rightPane: {
+            tabs: [
+                { type: 'pluginPanel', pluginId: ctx.pluginId, panelId: 'library' },
+                { type: 'fileBrowser' },
+                { type: 'webBrowser' },
+            ],
+            activeTab: 0,
         },
     });
 
     // Note: workspace registration only. Apply is done unconditionally at the
     // end of activate(), NOT here, NOT gated on a first-run cache flag.
-    return disposer;
+    // No explicit unregister needed — ephemeral templates clean on deactivation.
+    return () => {};
 }
 ```
 
@@ -264,20 +268,22 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
     await ctx.menubar.register({ icon: 'arrow.down.circle' });
 
     let unsubscribed = false;
-    const unsubscribe = ctx.events.subscribe('menubar.clicked', async () => {
+    // ctx.events.subscribe returns a string token, not a disposer
+    const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
         if (unsubscribed) return;
-        await ctx.ui.focusPanel('download').catch(() => { /* panel may not exist yet */ });
+        try { await ctx.workspaces.apply(WORKSPACE_ID); } catch { /* may not exist yet */ }
+        try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* workspace apply already surfaced it */ }
     });
 
     // Update badge as queue size changes
     const unsubscribeQueue = state.subscribe(() => {
         const count = state.getQueue().length;
-        ctx.menubar.setBadge(count > 0 ? String(count) : '');
+        ctx.menubar.setBadge(count > 0 ? count : 0);
     });
 
     return () => {
         unsubscribed = true;
-        unsubscribe();
+        ctx.events.unsubscribe(clickToken);
         unsubscribeQueue();
         ctx.menubar.remove().catch(() => { /* ignore */ });
     };
@@ -291,9 +297,9 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
 **File**: `src/smart-folders/filters.ts`
 
 ```ts
-import type { PluginContext, PluginFileDescriptor } from '@appos.space/plugin-types';
+import type { PluginContext } from '@appos.space/plugin-types';
 
-export function registerFilters(ctx: PluginContext, state: State): () => void {
+export async function registerFilters(ctx: PluginContext, state: State): Promise<() => void> {
     let favoritesByUrl: Map<string, boolean> = new Map();
 
     const rebuild = () => {
@@ -304,32 +310,34 @@ export function registerFilters(ctx: PluginContext, state: State): () => void {
     const unsubState = state.subscribe(rebuild);
 
     let disposed = false;
-    const disposeFilter = ctx.smartFolders.registerFilterType({
+    // registerFilterType returns Promise<string> (the namespaced filter type ID)
+    // There is no unregister API — filters auto-clean on plugin deactivation
+    await ctx.smartFolders.registerFilterType({
         id: 'ytdlp-favorites',
-        name: 'Favorites',
-        icon: 'star.fill',
-        evaluate: (file: PluginFileDescriptor) => {
+        displayName: 'Favorites',
+        evaluate: (item: { url: string; metadata: Record<string, unknown> }) => {
             if (disposed) return false;
-            return favoritesByUrl.has(file.url);
+            return favoritesByUrl.has(item.url);
         },
     });
 
     return () => {
         disposed = true;
         unsubState();
-        disposeFilter();
+        // No unregisterFilterType — the disposed flag guards late calls
     };
 }
 ```
 
-**Why synchronous `evaluate`**: smart folder filters are called once per file during directory traversal. They must be cheap and cannot await. Build a lookup structure (Map, Set) on state change and capture it in the closure.
+**Why synchronous `evaluate`**: smart folder filters are called once per file during directory traversal. They must be cheap and cannot await. Build a lookup structure (Map, Set) on state change and capture it in the closure. The callback receives `{ url: string, metadata: Record<string, unknown> }` — NOT a `PluginFileDescriptor`.
 
 ## 9. Dependency status handling
 
 **File**: `src/main.ts`
 
 ```ts
-disposables.push(ctx.lifecycle.onDependencyStatusChanged((statuses) => {
+// onDependencyStatusChanged returns a string token (not a disposer function)
+const depToken = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
     const ytDlp = statuses.find((s) => s.name === 'yt-dlp');
     const ffmpeg = statuses.find((s) => s.name === 'ffmpeg');
 
@@ -340,12 +348,12 @@ disposables.push(ctx.lifecycle.onDependencyStatusChanged((statuses) => {
         ytDlpVersion: ytDlp?.installedVersion,
         installHint: ytDlp?.installHint,
     });
-}));
-
-// Initial snapshot at activation
-const statuses = await ctx.lifecycle.getDependencyStatus();
-// ...update UI accordingly
+});
+// Note: no matching unsubscribe API exists for lifecycle tokens yet;
+// the subscription auto-cleans on plugin deactivation.
 ```
+
+> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` but runtime support is deferred. Do NOT call these APIs yet. Use `onDependencyStatusChanged` to receive status updates pushed by the host at activation time.
 
 If a required dependency is missing, show a "degraded banner" in the webview with the install hint. Don't refuse to load the plugin — the host already handles hard failures.
 
