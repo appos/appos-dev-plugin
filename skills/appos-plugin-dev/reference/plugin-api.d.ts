@@ -1,5 +1,5 @@
 /**
- * 2Panez Plugin API Type Definitions (Phase 2b-iii)
+ * AppOS Plugin API Type Definitions (Phase 2b-iii)
  *
  * These types define the contract between plugins and the host application.
  * Plugins receive a `PluginContext` object in their `activate(context)` function.
@@ -480,7 +480,7 @@ type PluginDependency = ManifestPluginDependency;
 interface PluginDependencies {
   /** System binary dependencies (e.g., yt-dlp, ffmpeg). */
   system?: SystemDependency[];
-  /** Plugin dependencies (other 2Panez plugins). */
+  /** Plugin dependencies (other AppOS plugins). */
   plugins?: PluginDependency[];
 }
 

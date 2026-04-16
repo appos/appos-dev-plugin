@@ -1,30 +1,30 @@
-# CLAUDE.md — twopanez-dev plugin
+# CLAUDE.md — appos-dev plugin
 
 Project instructions for Claude Code when working inside this repo.
 
 ## What this is
 
-A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS (2Panez) file manager plugins. Canonical reference: `~/Documents/GitHub/AppOS/appos-plugin-ytdlp` — the flagship plugin that exercises every supported SDK feature.
+A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS file manager plugins. Canonical reference: `~/Documents/GitHub/AppOS/appos-plugin-ytdlp` — the flagship plugin that exercises every supported SDK feature.
 
 This plugin is versioned at **2.0.0** because it was fully rewritten to target the SDK+WebView flagship pattern. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern.
 
 ## Repository layout
 
 ```
-2panez-dev-plugin/
+appos-dev-plugin/
 ├── .claude-plugin/
 │   ├── plugin.json          # Claude Code plugin manifest
 │   └── marketplace.json     # Single-plugin marketplace catalog
 ├── commands/
-│   ├── new-plugin.md        # /twopanez-dev:new-plugin
-│   ├── build.md             # /twopanez-dev:build
-│   ├── deploy.md            # /twopanez-dev:deploy
-│   └── validate.md          # /twopanez-dev:validate
+│   ├── new-plugin.md        # /appos-dev:new-plugin
+│   ├── build.md             # /appos-dev:build
+│   ├── deploy.md            # /appos-dev:deploy
+│   └── validate.md          # /appos-dev:validate
 ├── agents/
 │   ├── plugin-architect.md          # Designs plugin architecture from requirements
 │   └── webview-panel-builder.md     # Builds WebView panels end-to-end
 ├── skills/
-│   ├── twopanez-plugin-dev/
+│   ├── appos-plugin-dev/
 │   │   ├── SKILL.md         # Main SDK+WebView skill
 │   │   └── reference/       # Full API spec, patterns, type definitions
 │   └── webview-panels/
@@ -39,12 +39,12 @@ Before editing anything, be aware of these external sources of truth:
 
 - **Flagship reference plugin**: `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` — all patterns in the skills match this plugin's implementation. When in doubt, read its source files.
 - **SDK source**: `~/Documents/GitHub/AppOS/plugin-sdk/packages/plugin-types/dist/` — the current declaration-only TypeScript types. Use for reference when validating API shapes in skills or commands.
-- **Host version**: read `/Applications/2Panez.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.7.0`). This is the number that `plugin.json` `minHostVersion` is compared against, NOT the SDK package version.
+- **Host version**: read `/Applications/2Panez.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.7.0`). This is the host app's on-disk bundle (legacy name, do not rename); its version is what `plugin.json` `minHostVersion` is compared against, NOT the SDK package version.
 
 ## Conventions
 
 - **Plugin IDs**: use `space.appos.*` for flagship plugins (the ones shipped with AppOS), `com.community.*` for community plugins, other reverse-domain for private/personal plugins.
-- **minHostVersion**: always default to `"1.0.0"`. The single biggest cause of "plugin installed but not appearing in Settings" is conflating the SDK version (`2.4.x`) with the host version (`1.7.x`). The `twopanez-plugin-dev` skill has a "minHostVersion landmine" section; keep it prominent.
+- **minHostVersion**: always default to `"1.0.0"`. The single biggest cause of "plugin installed but not appearing in Settings" is conflating the SDK version (`2.4.x`) with the host version (`1.7.x`). The `appos-plugin-dev` skill has a "minHostVersion landmine" section; keep it prominent.
 - **tsconfig**: always include `verbatimModuleSyntax: true`. Without it, TypeScript emits broken runtime imports from the declaration-only `@appos.space/plugin-types` package.
 - **Entry point**: always `globalThis.activate = activate` + `globalThis.deactivate = deactivate`, never ESM `export`. ESM exports disappear inside the IIFE closure and the host can't find them.
 - **Parameter naming**: always `ctx`, never `pluginContext`. Matches `appos-plugin-ytdlp` and every reference plugin.
@@ -68,11 +68,11 @@ Follow Claude Code plugin conventions:
 ## Testing locally
 
 ```bash
-claude --plugin-dir ~/Documents/GitHub/2panez-dev-plugin/
+claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
 ```
 
 Then verify:
-- `/twopanez-dev:new-plugin` scaffolds a plugin using the SDK pattern
+- `/appos-dev:new-plugin` scaffolds a plugin using the SDK pattern
 - The main skill triggers when asked something like "create an AppOS plugin that downloads with yt-dlp"
 - The `webview-panels` skill triggers when asked about `registerWebPanel` or `pipeShellToWebPanel`
 - The `plugin-architect` agent triggers when asked to design a new plugin
@@ -80,7 +80,7 @@ Then verify:
 
 ## Do NOT
 
-- Do NOT copy from `2panez-community-plugins/template/` — that's the legacy model
+- Do NOT copy from the legacy community-plugin template — it's the ViewDescriptor-only model and should not be used for new plugins
 - Do NOT recommend ESM `export` for activate/deactivate
 - Do NOT set `minHostVersion` to anything other than `"1.0.0"` without a documented reason
 - Do NOT add inline `<script>`/`<style>`/`on*=` to WebView HTML examples (CSP blocks them)

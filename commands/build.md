@@ -22,7 +22,7 @@ while [ "$dir" != "/" ]; do
 done
 ```
 
-If no `plugin.json` is found, report an error and suggest running `/twopanez-dev:new-plugin` first.
+If no `plugin.json` is found, report an error and suggest running `/appos-dev:new-plugin` first.
 
 ## 2. Read the manifest
 
@@ -106,4 +106,4 @@ mkdir -p dist
 npx esbuild src/main.ts --bundle --format=iife --target=es2020 --outfile=dist/main.js
 ```
 
-Warn: "This plugin uses the legacy CLI build. Consider migrating to `build.mjs` + SDK — see the `twopanez-plugin-dev` skill."
+Warn: "This plugin uses the legacy CLI build. Consider migrating to `build.mjs` + SDK — see the `appos-plugin-dev` skill."

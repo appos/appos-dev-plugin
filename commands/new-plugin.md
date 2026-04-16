@@ -8,14 +8,14 @@ description: Scaffold a new AppOS plugin using the SDK+WebView flagship pattern
 
 Create a new AppOS plugin targeting the SDK pattern (`@appos.space/plugin-types` + `@appos.space/plugin-utils` + `@appos.space/view-builders`) with optional WebView panels. Reference implementation: `appos-plugin-ytdlp`.
 
-**Do not copy from `2panez-community-plugins/template/` — it's the legacy ViewDescriptor-only model and should not be used for new plugins.** Write files directly with the Write tool.
+**Do not copy from the legacy community-plugin template — it's the ViewDescriptor-only model and should not be used for new plugins.** Write files directly with the Write tool.
 
 ## 1. Gather information
 
 If a plugin name was provided as an argument, use it. Otherwise ask for:
 - **Plugin name** (kebab-case, e.g. `file-stats`)
 - **One-sentence description**
-- **Flagship or community?** — flagships use `space.appos.*` IDs and live under `~/Documents/GitHub/AppOS/appos-plugin-{name}/`. Community plugins use `com.community.*` IDs and live under `~/Documents/GitHub/2panez-community-plugins/plugins/{name}/` (or wherever the user prefers).
+- **Flagship or community?** — flagships use `space.appos.*` IDs and live under `~/Documents/GitHub/AppOS/appos-plugin-{name}/`. Community plugins use `com.community.*` IDs and live under a community-plugins repo of the user's choice.
 - **Rendering mode** — WebView panel (rich UI, streaming progress, media), ViewDescriptor sidebar (simple lists, native feel), or both. If unsure, ask the user what the primary UI looks like.
 
 Generate the plugin ID:
@@ -27,7 +27,7 @@ Generate the plugin ID:
 Before writing code, invoke the main skill to load the full SDK pattern:
 
 ```
-Skill: twopanez-plugin-dev
+Skill: appos-plugin-dev
 ```
 
 If the plugin will use a WebView panel, also invoke:
@@ -290,6 +290,6 @@ Tell the user:
 - Where the plugin was created
 - Which permissions/dependencies were declared
 - Which rendering mode was used
-- Next steps: edit `src/main.ts` to add functionality, `/twopanez-dev:build` to rebuild, `/twopanez-dev:deploy` to install, `/twopanez-dev:validate` to check for issues.
+- Next steps: edit `src/main.ts` to add functionality, `/appos-dev:build` to rebuild, `/appos-dev:deploy` to install, `/appos-dev:validate` to check for issues.
 
 If this is a first-time plugin, also point them at `appos-plugin-ytdlp` as the canonical reference for any pattern they're unsure about — it ships every supported SDK feature.

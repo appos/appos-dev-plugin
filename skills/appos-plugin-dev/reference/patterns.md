@@ -230,7 +230,7 @@ Then, at the end of `activate()`:
 
 ```ts
 // Step N (last): apply workspace so the user sees the UI immediately.
-// activate() runs once per 2Panez launch, so this is effectively once-per-launch.
+// activate() runs once per host launch, so this is effectively once-per-launch.
 // The user can still switch workspaces manually after activation and we won't
 // override them again until next launch.
 try {

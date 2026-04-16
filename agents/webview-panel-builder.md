@@ -41,7 +41,7 @@ You are a WebView panel specialist for AppOS plugins. You build rich HTML/CSS/JS
 Before building anything, invoke these skills to load the current patterns:
 
 - `webview-panels` — The full WebView authoring skill: bridge pattern, CSP rules, message protocol, pipeShellToWebPanel, throttled broadcasts, multi-instance isolation
-- `twopanez-plugin-dev` — SDK structure, permissions, build/deploy, entry point pattern
+- `appos-plugin-dev` — SDK structure, permissions, build/deploy, entry point pattern
 
 The canonical reference plugin is `~/Documents/GitHub/AppOS/appos-plugin-ytdlp`. When in doubt about any pattern, read:
 

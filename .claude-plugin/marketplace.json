@@ -1,10 +1,10 @@
 {
   "plugins": [
     {
-      "name": "twopanez-dev",
-      "description": "Create, build, test, and deploy AppOS (2Panez) plugins using the @appos.space SDK. Skills for WebView panels, workspaces, menubar, smart folders, and CLI streaming via pipeShellToWebPanel. Commands for scaffolding/building/deploying. Canonical reference: appos-plugin-ytdlp.",
+      "name": "appos-dev",
+      "description": "Create, build, test, and deploy AppOS plugins using the @appos.space SDK. Skills for WebView panels, workspaces, menubar, smart folders, and CLI streaming via pipeShellToWebPanel. Commands for scaffolding/building/deploying. Canonical reference: appos-plugin-ytdlp.",
       "version": "2.0.0",
-      "homepage": "https://github.com/twopanez/2panez-dev-plugin"
+      "homepage": "https://github.com/appos/appos-dev-plugin"
     }
   ]
 }

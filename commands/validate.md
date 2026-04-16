@@ -41,7 +41,7 @@ Check for the SDK-pattern scaffolding:
 - `build.mjs` exists (canonical build script)
 - `src/main.ts` exists
 
-If any are missing and the plugin still builds, flag as a warning: "Plugin does not follow the SDK pattern — consider migrating. See `twopanez-plugin-dev` skill."
+If any are missing and the plugin still builds, flag as a warning: "Plugin does not follow the SDK pattern — consider migrating. See `appos-plugin-dev` skill."
 
 ## 4. Build validation
 

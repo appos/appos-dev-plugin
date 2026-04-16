@@ -7,18 +7,18 @@ description: Deploy the current AppOS plugin to the local plugins directory
 
 Deploy the built plugin to `~/Library/Application Support/com.twopanez/plugins/`.
 
-**Destination path note**: The host app is still `com.twopanez` on disk even though it's branded as AppOS in the UI — the installer bundle ID hasn't changed.
+**Destination path note**: The host app's on-disk bundle ID is `com.twopanez` (legacy identifier). Do not change this path; the installer has not been renamed.
 
 ## 1. Find and read plugin.json
 
 Locate `plugin.json` in the current directory or parent directories. Read it to get:
 - `id` (target install directory name)
 - `name` (for the report)
-- `minHostVersion` — verify this is NOT set to an SDK version like `"2.4.0"`. If it is, STOP and warn the user: this is the minHostVersion landmine — it must be a host `CFBundleShortVersionString` (`"1.0.0"` is the safe default). See `twopanez-plugin-dev` skill → "minHostVersion landmine" section.
+- `minHostVersion` — verify this is NOT set to an SDK version like `"2.4.0"`. If it is, STOP and warn the user: this is the minHostVersion landmine — it must be a host `CFBundleShortVersionString` (`"1.0.0"` is the safe default). See `appos-plugin-dev` skill → "minHostVersion landmine" section.
 
 ## 2. Verify the build exists
 
-Check that `dist/main.js` exists. If not, suggest running `/twopanez-dev:build` first.
+Check that `dist/main.js` exists. If not, suggest running `/appos-dev:build` first.
 
 If the plugin has a `webview/` directory, also verify at least one `webview/*/index.html` exists — an empty webview tree indicates a partial build.
 
@@ -81,8 +81,8 @@ Files installed:
   - dist/main.js
   - webview/ (if applicable)
 
-Next: restart AppOS (2Panez) to load the updated plugin.
-If the plugin does not appear in Settings → Plugins, run /twopanez-dev:validate to check for manifest issues — especially minHostVersion.
+Next: restart AppOS to load the updated plugin.
+If the plugin does not appear in Settings → Plugins, run /appos-dev:validate to check for manifest issues — especially minHostVersion.
 ```
 
 ## 5. Optional: verify files landed

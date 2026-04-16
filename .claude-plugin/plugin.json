@@ -1,6 +1,6 @@
 {
-  "name": "twopanez-dev",
-  "description": "Create, build, test, and deploy AppOS (2Panez) plugins using the @appos.space SDK. Skills for the full plugin API (22 namespaces, 33 permissions, WebView panels, workspaces, menubar, smart folders), commands for scaffolding/building/deploying, and specialized agents for architecture and WebView panel implementation. Canonical reference: appos-plugin-ytdlp.",
+  "name": "appos-dev",
+  "description": "Create, build, test, and deploy AppOS plugins using the @appos.space SDK. Skills for the full plugin API (22 namespaces, 33 permissions, WebView panels, workspaces, menubar, smart folders), commands for scaffolding/building/deploying, and specialized agents for architecture and WebView panel implementation. Canonical reference: appos-plugin-ytdlp.",
   "version": "2.0.0",
-  "homepage": "https://github.com/twopanez/2panez-dev-plugin"
+  "homepage": "https://github.com/appos/appos-dev-plugin"
 }

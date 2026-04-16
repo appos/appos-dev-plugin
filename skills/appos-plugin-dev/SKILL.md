@@ -1,9 +1,9 @@
 ---
 description: >
-  Build plugins for AppOS (formerly 2Panez), the dual-pane macOS file manager. Use this
+  Build plugins for AppOS, the dual-pane macOS file manager. Use this
   skill whenever someone asks about creating, building, testing, or deploying AppOS
   plugins, or when working in a repo that imports from @appos.space/*. Triggers on:
-  "AppOS plugin", "2Panez plugin", "@appos.space/plugin-types", "registerWebPanel",
+  "AppOS plugin", "@appos.space/plugin-types", "registerWebPanel",
   "pipeShellToWebPanel", "WorkspaceTemplate", "SmartFolder filter", "lifecycle
   dependencies", "plugin.json minHostVersion", or any of the 22 plugin API namespaces.
   Also use PROACTIVELY when the user is working with TypeScript files that import from
@@ -12,7 +12,7 @@ description: >
 
 # AppOS Plugin Development
 
-Build plugins for AppOS (formerly 2Panez), a dual-pane file manager for macOS. Plugins are TypeScript modules compiled to IIFE bundles and executed inside JavaScriptCore (JSC). They receive a typed `PluginContext` object that exposes 22 API namespaces for interacting with the host.
+Build plugins for AppOS, a dual-pane file manager for macOS. Plugins are TypeScript modules compiled to IIFE bundles and executed inside JavaScriptCore (JSC). They receive a typed `PluginContext` object that exposes 22 API namespaces for interacting with the host.
 
 The canonical reference implementation is **`appos-plugin-ytdlp`** — the flagship yt-dlp GUI plugin. When designing anything non-trivial, mirror its patterns.
 
@@ -295,7 +295,7 @@ await ctx.workspaces.register({
 });
 ```
 
-**Apply unconditionally on every activation** — NOT gated on a first-run cache flag. `activate()` only runs once per 2Panez launch, so calling `ctx.workspaces.apply('ytdlp-dual-pane')` at the end of activation is effectively once-per-launch. This is the only reliable way to guarantee the user sees your plugin's UI.
+**Apply unconditionally on every activation** — NOT gated on a first-run cache flag. `activate()` only runs once per host launch, so calling `ctx.workspaces.apply('ytdlp-dual-pane')` at the end of activation is effectively once-per-launch. This is the only reliable way to guarantee the user sees your plugin's UI.
 
 > **LANDMINE — do not gate workspace apply behind `applyIfFirstRun` / `cache.get('initialized')`**
 >
@@ -484,7 +484,7 @@ if (isWatch) {
 
 ## Deploy
 
-Install to the user plugin directory. The bundle ID prefix is `com.twopanez` (legacy — kept for install-path compatibility), not `space.appos`:
+Install to the user plugin directory. The on-disk bundle ID prefix is `com.twopanez` (legacy host identifier — do not rename), not `space.appos`:
 
 ```bash
 rsync -av --delete --delete-excluded \

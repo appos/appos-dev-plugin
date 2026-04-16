@@ -1,16 +1,16 @@
 ---
 description: >
-  Build ViewDescriptor UI trees for 2Panez plugins. Use this skill when building or
+  Build ViewDescriptor UI trees for AppOS plugins. Use this skill when building or
   designing sidebar panels, activity views, or any plugin UI. Triggers on: "ViewDescriptor",
   "sidebar panel UI", "listItem", "menuActions", "section with badge", "column alignment",
-  "trailing children", or when designing the view tree for a 2Panez plugin. Also use
+  "trailing children", or when designing the view tree for an AppOS plugin. Also use
   PROACTIVELY when the user is building ViewDescriptor JSON trees or asking about
-  2Panez UI component types.
+  AppOS UI component types.
 ---
 
 # ViewDescriptor Authoring
 
-Build native SwiftUI views for 2Panez plugins using JSON ViewDescriptor trees. Each node has a `type`, optional `properties`, and optional `children`. The host maps these to SwiftUI components.
+Build native SwiftUI views for AppOS plugins using JSON ViewDescriptor trees. Each node has a `type`, optional `properties`, and optional `children`. The host maps these to SwiftUI components.
 
 ## All 17 types
 
