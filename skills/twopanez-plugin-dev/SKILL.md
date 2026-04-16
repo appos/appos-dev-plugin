@@ -420,7 +420,7 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 
 ### Permissions
 
-Permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the full list). Only request what you use. Common ones:
+Permission scopes (see API comments in `plugin-api.d.ts` for per-namespace requirements). Only request what you use. Common ones:
 
 - `ui.webPanel` — register WebView panels (required for `registerWebPanel`)
 - `ui.sidebar` — register sidebar panels (required for `registerPanel`)
@@ -434,7 +434,7 @@ Permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the full list)
 - `feedback.confirm` — `ctx.feedback.alert()` (blocking modal)
 - `network.outbound` — `ctx.network.fetch()` / `.download()` (also list domains in `networkDomains`)
 - `network.unrestricted` — unrestricted network access (no domain allowlist)
-- `cache`, `workspaces`, `menubar`, `smartFolders`
+- `cache`, `workspaces`, `menubar`
 - `ui.webPanel` also gates `pipeShellToWebPanel` (combined with `shell.execute`)
 
 The full list is documented in API comments throughout `reference/plugin-api.d.ts`.

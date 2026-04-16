@@ -550,6 +550,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     });
 
     ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
+        if (typeof envelope.data !== 'object' || envelope.data === null) return;
         const raw = envelope.data as Record<string, unknown>;
         if (raw.v !== 1 || typeof raw.type !== 'string') return;
 
@@ -564,6 +565,9 @@ async function activate(ctx: PluginContext): Promise<void> {
     });
 
     ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
+        if (typeof envelope.data !== 'object' || envelope.data === null) {
+            return { v: 1, type: 'error', message: 'invalid payload' };
+        }
         const raw = envelope.data as Record<string, unknown>;
         if (raw.v !== 1 || typeof raw.type !== 'string') {
             return { v: 1, type: 'error', message: 'unsupported protocol version' };

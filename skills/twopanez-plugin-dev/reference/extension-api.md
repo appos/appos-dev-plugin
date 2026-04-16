@@ -40,7 +40,7 @@ declare module '@appos.space/plugin-types' {
 | `ctx.extensionPoints` | Declare/contribute extension points for other plugins | `interPlugin.declare`, `interPlugin.contribute` |
 | `ctx.dataContracts` | Expose queryable data for other plugins | `interPlugin.query` |
 | `ctx.interPluginEvents` | Pub/sub between plugins | `interPlugin.emit` |
-| `ctx.smartFolders` | Custom filter types for smart folders (fn-13) | `smartFolders` |
+| `ctx.smartFolders` | Custom filter types for smart folders (fn-13) | `filesystem.read` |
 | `ctx.preview` | File preview registry queries | `ui.preview` |
 | `ctx.events` | Subscribe to navigation, pane activation, selection, app.willQuit, menubar.clicked | (none) |
 | `ctx.network` | HTTP fetch and file download | `network` / `network.outbound` / `network.unrestricted` |
@@ -52,7 +52,7 @@ declare module '@appos.space/plugin-types' {
 | `ctx.cache` | Memory+SQLite cache with TTL (fn-41) | `cache` |
 | `ctx.feedback` | Toasts, HUD, confirmation, progress (fn-41) | `feedback`, `feedback.confirm` |
 | `ctx.oauth` | OAuth 2.0 + PKCE (fn-41) | `oauth`, `oauth.{id}` |
-| `ctx.menubar` | NSStatusItem management (fn-41) | `menubar`, `menubar.globalShortcut` |
+| `ctx.menubar` | NSStatusItem management (fn-41) | `menubar` |
 | `ctx.lifecycle` | Dependency status notifications (fn-50) | (none) |
 
 ## Permissions
@@ -75,7 +75,7 @@ Permission scopes are enforced by the host at runtime. The following are the sco
 
 **Workspaces / caching / feedback** — `workspaces`, `cache`, `feedback`, `feedback.confirm`
 
-**Advanced integrations** — `smartFolders` (uses `filesystem.read`), `menubar`, `oauth`, `` `oauth.${string}` ``
+**Advanced integrations** — `menubar`, `oauth`, `` `oauth.${string}` ``
 
 **If you declare `shell.execute`**, you MUST also declare `"shellCommands": ["..."]` with the exact commands the plugin invokes. The sandbox blocks any command not in that list.
 
@@ -131,7 +131,7 @@ See the `ViewDescriptor` interface in `plugin-api.d.ts` for full signatures.
 - `dependencies.plugins[]` — other plugins the plugin depends on
 - `settings[]` — user-configurable settings (`string`, `enum`, `bool`, `number`)
 - `oauth.providers[]` — OAuth provider declarations (fn-41)
-- `menubar.icon`, `menubar.label`, `menubar.globalShortcut` — menu bar config (fn-41)
+- `menubar.icon`, `menubar.label` — menu bar config (fn-41)
 - `categories`, `keywords` — Plugin Store metadata
 
 ## Plugin dependencies (fn-50)
