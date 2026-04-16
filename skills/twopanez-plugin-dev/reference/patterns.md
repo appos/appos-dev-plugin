@@ -527,7 +527,7 @@ defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionS
     "entrypoint": "dist/main.js",
     "minHostVersion": "1.0.0",
     "activation": { "events": ["onStartup"] },
-    "permissions": ["ui.webPanel", "shell.execute", "filesystem.read", "cache", "feedback", "webview"],
+    "permissions": ["ui.webPanel", "shell.execute", "filesystem.read", "cache", "feedback"],
     "shellCommands": ["mytool"]
 }
 ```
@@ -550,11 +550,13 @@ async function activate(ctx: PluginContext): Promise<void> {
     });
 
     ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
-        const msg = envelope.data;
-        if (typeof msg !== 'object' || msg === null || msg.v !== 1) return;
+        const raw = envelope.data as Record<string, unknown>;
+        if (raw.v !== 1 || typeof raw.type !== 'string') return;
 
-        if (msg.type === 'run-command') {
-            Promise.resolve().then(() => runCommand(ctx, msg.command, msg.args)).catch((err) => {
+        if (raw.type === 'run-command') {
+            if (typeof raw.command !== 'string') return;
+            const args = Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === 'string') : [];
+            Promise.resolve().then(() => runCommand(ctx, raw.command as string, args)).catch((err) => {
                 const name = err instanceof Error ? err.constructor.name : 'unknown';
                 console.error(`[mytools] runCommand failed (${name})`);
             });
@@ -562,11 +564,11 @@ async function activate(ctx: PluginContext): Promise<void> {
     });
 
     ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
-        const msg = envelope.data;
-        if (typeof msg !== 'object' || msg === null || msg.v !== 1) {
+        const raw = envelope.data as Record<string, unknown>;
+        if (raw.v !== 1 || typeof raw.type !== 'string') {
             return { v: 1, type: 'error', message: 'unsupported protocol version' };
         }
-        if (msg.type === 'get-status') {
+        if (raw.type === 'get-status') {
             return { v: 1, type: 'status', ready: true };
         }
         return { v: 1, type: 'error', message: 'unknown request' };
@@ -773,7 +775,7 @@ Declare system dependencies so the host auto-checks them at activation and repor
     "entrypoint": "dist/main.js",
     "minHostVersion": "1.0.0",
     "activation": { "events": ["onStartup"] },
-    "permissions": ["ui.webPanel", "shell.execute", "cache", "feedback", "webview"],
+    "permissions": ["ui.webPanel", "shell.execute", "cache", "feedback"],
     "shellCommands": ["convert", "ffmpeg"],
     "shellDeniedPatterns": ["\\bsudo\\b"],
     "dependencies": {

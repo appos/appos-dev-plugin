@@ -10,9 +10,23 @@ SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Conte
 
 | Metadata | Type | Notes |
 |---|---|---|
-| `ctx.pluginId` | string | e.g., `"space.appos.ytdlp"`. Runtime-injected by the host bridge; not declared in `plugin-api.d.ts` — cast via `(ctx as any).pluginId` or add to a local ambient declaration. |
+| `ctx.pluginId` | string | e.g., `"space.appos.ytdlp"`. Runtime-injected by the host bridge. |
 | `ctx.pluginVersion` | string | from `plugin.json`. Runtime-injected. |
 | `ctx.hostVersion` | string | host `CFBundleShortVersionString`. Runtime-injected. |
+
+These metadata properties are set by the host at activation time but are not declared in `plugin-api.d.ts`. Add a local ambient declaration to your project:
+
+```ts
+// src/ambient.d.ts
+import type { PluginContext } from '@appos.space/plugin-types';
+declare module '@appos.space/plugin-types' {
+    interface PluginContext {
+        readonly pluginId: string;
+        readonly pluginVersion: string;
+        readonly hostVersion: string;
+    }
+}
+```
 
 ### Namespaces
 
@@ -20,7 +34,7 @@ SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Conte
 |---|---|---|
 | `ctx.commands` | Register commands for palette + shortcuts | (none) |
 | `ctx.fileOps` | Read/write/watch filesystem, get active dir, move/copy/delete | `filesystem.read`, `filesystem.write`, `filesystem.watch` |
-| `ctx.ui` | Panels (`registerPanel`, `registerWebPanel`, `registerActivityView`), status bar, context menus, notifications, sheets, shortcuts registration, `postToWebPanel`, `onWebPanelMessage`, `pipeShellToWebPanel` | `ui.*`, `webview` |
+| `ctx.ui` | Panels (`registerPanel`, `registerWebPanel`, `registerActivityView`), status bar, context menus, notifications, sheets, shortcuts registration, `postToWebPanel`, `onWebPanelMessage`, `pipeShellToWebPanel` | `ui.*` (e.g., `ui.sidebar`, `ui.webPanel`) |
 | `ctx.storage` | Scoped key-value storage (plaintext + keychain) | `keychain.plugin` for secure entries |
 | `ctx.settings` | Read user-configurable settings from manifest | (none) |
 | `ctx.extensionPoints` | Declare/contribute extension points for other plugins | `interPlugin.declare`, `interPlugin.contribute` |
@@ -43,25 +57,25 @@ SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Conte
 
 ## Permissions
 
-`@appos.space/plugin-types` defines the following permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the canonical list):
+Permission scopes are enforced by the host at runtime. The following are the scopes referenced in `plugin-api.d.ts` API comments:
 
 **UI** — `ui.sidebar`, `ui.statusBar`, `ui.contextMenu`, `ui.notifications`, `ui.sheets`, `ui.shortcuts`, `ui.themes`, `ui.preview`, `ui.aiChat`, `ui.webPanel`
 
 **Filesystem** — `filesystem.read`, `filesystem.write`, `filesystem.watch`, `filesystem.readAll`, `filesystem.writeAll`
 
-**Shell** — `shell.execute`, `shell.uncontained`
+**Shell** — `shell.execute`
 
 **Clipboard** — `clipboard.read`, `clipboard.write`
 
-**Network** — `network`, `network.outbound`, `network.fetch`, `network.unrestricted`
+**Network** — `network.outbound`, `network.unrestricted`
 
 **Secure storage** — `keychain.plugin`
 
 **Inter-plugin** — `interPlugin.declare`, `interPlugin.contribute`, `interPlugin.query`, `interPlugin.emit`
 
-**WebView / workspaces / caching / feedback** — `webview`, `workspaces`, `cache`, `feedback`, `feedback.confirm`
+**Workspaces / caching / feedback** — `workspaces`, `cache`, `feedback`, `feedback.confirm`
 
-**Advanced integrations** — `smartFolders`, `menubar`, `menubar.globalShortcut`, `oauth`, `` `oauth.${string}` ``
+**Advanced integrations** — `smartFolders` (uses `filesystem.read`), `menubar`, `oauth`, `` `oauth.${string}` ``
 
 **If you declare `shell.execute`**, you MUST also declare `"shellCommands": ["..."]` with the exact commands the plugin invokes. The sandbox blocks any command not in that list.
 
@@ -98,11 +112,11 @@ Each has a `type` discriminator and a typed `properties` object. `listItem` also
 **`progress`** — Determinate or indeterminate progress indicator.
 - Properties: `value` (number 0.0-1.0, omit for indeterminate), `label` (string), `style` ("bar" | "circular", default: "bar")
 
-See `views.d.ts` inside `plugin-api.d.ts` for full signatures.
+See the `ViewDescriptor` interface in `plugin-api.d.ts` for full signatures.
 
 ## Plugin manifest
 
-`plugin.json` shape (see `PluginManifest` in `plugin-api.d.ts`):
+`plugin.json` shape (see dependency and manifest types in `plugin-api.d.ts`):
 
 - `id` — reverse-domain (`space.appos.*` flagship, `com.community.*` community)
 - `name`, `version`, `runtime: "javascript"`, `entrypoint`
@@ -424,13 +438,13 @@ Plugins may declare `shellDeniedPatterns: string[]` in `plugin.json` to add cust
 
 ## Where to find exact signatures
 
-Read `plugin-api.d.ts` in this directory — it's a consolidated snapshot of:
-- `core.d.ts` — `PluginContext`, `PluginManifest`, dependency types
-- `namespaces.d.ts` — all 22 namespace interfaces (~1100 lines, the biggest file)
-- `views.d.ts` — `ViewDescriptor` discriminated union + `MenuAction`
-- `permissions.d.ts` — the 33 `PermissionScope` literals
-- `colors.d.ts` — `PluginColor` literals
-- `fonts.d.ts` — `PluginFont` literals
-- `icons.d.ts` — `SFSymbolName` curated list + `string & {}` escape hatch
+Read `plugin-api.d.ts` in this directory — it's a consolidated snapshot (~2950 lines) containing:
+- `PluginContext` interface with all 22 namespace properties
+- All namespace interfaces (`UIAPI`, `ShellAPI`, `WorkspacesAPI`, `PluginFeedbackAPI`, etc.)
+- `ViewDescriptor` interface with the 17-type discriminated union
+- Dependency types (`SystemDependency`, `DependencyStatus`, `PluginDependencies`)
+- WebView panel types (`WebPanelOptions`, `WebPanelMessage`, CSS custom property docs)
+- Shell types (`ShellExecuteOptions`, `ShellDataChunk`, `ShellExecuteResult`)
+- Workspace types (`WorkspaceTemplate`, `WorkspaceTemplateTabSlot`, `WorkspaceTemplatePaneConfig`)
 
 For patterns, read `patterns.md` in this directory or `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` directly.

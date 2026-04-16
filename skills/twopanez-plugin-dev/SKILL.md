@@ -435,9 +435,9 @@ Permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the full list)
 - `network.outbound` — `ctx.network.fetch()` / `.download()` (also list domains in `networkDomains`)
 - `network.unrestricted` — unrestricted network access (no domain allowlist)
 - `cache`, `workspaces`, `menubar`, `smartFolders`
-- `webview` — the runtime capability that backs `ui.webPanel` / `pipeShellToWebPanel`
+- `ui.webPanel` also gates `pipeShellToWebPanel` (combined with `shell.execute`)
 
-The full list lives in `reference/plugin-api.d.ts` under `PermissionScope`.
+The full list is documented in API comments throughout `reference/plugin-api.d.ts`.
 
 ## Build
 
