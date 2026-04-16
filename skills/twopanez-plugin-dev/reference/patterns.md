@@ -195,12 +195,12 @@ export const WORKSPACE_ID = 'ytdlp-workspace';
 
 export async function registerWorkspace(ctx: PluginContext): Promise<() => void> {
     // register() returns Promise<string> (the workspace ID)
+    // source is auto-stamped by register() — do not pass it manually
     await ctx.workspaces.register({
         schemaVersion: 1,
         id: WORKSPACE_ID,
         name: 'Downloads',
         icon: 'arrow.down.circle',
-        source: { type: 'plugin', pluginId: ctx.pluginId },
         leftPane: {
             tabs: [
                 { type: 'pluginPanel', panelId: 'download' },
@@ -241,9 +241,9 @@ try {
 
 > **DO NOT use an `applyIfFirstRun(ctx)` / `cache.get('initialized')` gate.**
 >
-> Gating workspace apply behind a cache flag is the #1 cause of "plugin installed but no UI is visible". On first launch it works; on every subsequent launch the user is left in whatever workspace they were in before, with no reliable way to discover the plugin's panels. The workspace dropdown is easy to miss, the command palette requires knowing exact names, and `ctx.ui.showPaneTab` only focuses existing tabs so panel-open commands silently fail in other workspaces. Apply unconditionally in `activate()` and move on.
+> Gating workspace apply behind a cache flag is the #1 cause of "plugin installed but no UI is visible". On first launch it works; on every subsequent launch the user is left in whatever workspace they were in before, with no reliable way to discover the plugin's panels. Apply unconditionally in `activate()` and move on.
 
-**Panel-open commands must apply the workspace first** — `ctx.ui.showPaneTab(panelId, ...)` only focuses an existing tab; it will NOT create a panel in a workspace that doesn't have one:
+**Panel-open commands**: `ctx.ui.showPaneTab(panelId, options?)` focuses an existing tab if present, or creates a new tab if none exists. Use `workspaces.apply()` before `showPaneTab` when the command depends on the full dual-pane layout:
 
 ```ts
 ctx.commands.register('open-download-panel', {
@@ -554,7 +554,10 @@ async function activate(ctx: PluginContext): Promise<void> {
         if (typeof msg !== 'object' || msg === null || msg.v !== 1) return;
 
         if (msg.type === 'run-command') {
-            runCommand(ctx, msg.command, msg.args);
+            Promise.resolve().then(() => runCommand(ctx, msg.command, msg.args)).catch((err) => {
+                const name = err instanceof Error ? err.constructor.name : 'unknown';
+                console.error(`[mytools] runCommand failed (${name})`);
+            });
         }
     });
 

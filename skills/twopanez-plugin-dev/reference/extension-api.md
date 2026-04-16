@@ -10,9 +10,9 @@ SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Conte
 
 | Metadata | Type | Notes |
 |---|---|---|
-| `ctx.pluginId` | string | e.g., `"space.appos.ytdlp"` |
-| `ctx.pluginVersion` | string | from `plugin.json` |
-| `ctx.hostVersion` | string | host `CFBundleShortVersionString` |
+| `ctx.pluginId` | string | e.g., `"space.appos.ytdlp"`. Runtime-injected by the host bridge; not declared in `plugin-api.d.ts` — cast via `(ctx as any).pluginId` or add to a local ambient declaration. |
+| `ctx.pluginVersion` | string | from `plugin.json`. Runtime-injected. |
+| `ctx.hostVersion` | string | host `CFBundleShortVersionString`. Runtime-injected. |
 
 ### Namespaces
 
@@ -41,7 +41,7 @@ SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Conte
 | `ctx.menubar` | NSStatusItem management (fn-41) | `menubar`, `menubar.globalShortcut` |
 | `ctx.lifecycle` | Dependency status notifications (fn-50) | (none) |
 
-## The 33 permissions
+## Permissions
 
 `@appos.space/plugin-types` defines the following permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the canonical list):
 
@@ -211,7 +211,7 @@ await ctx.workspaces.register({
     id: 'ytdlp-workspace',
     name: 'Downloads',
     icon: 'arrow.down.circle',
-    source: { type: 'plugin', pluginId: ctx.pluginId },
+    // source is auto-stamped by register() — do not pass it manually
     leftPane: {
         tabs: [
             { type: 'pluginPanel', panelId: 'download' },
@@ -370,9 +370,11 @@ interface ShellDataChunk {
 **Buffered (default)** — omit `onData`. The Promise resolves with `{ exitCode, stdout, stderr }` after process exit:
 
 ```ts
+// T1 plugins: cwd must be within active pane roots
+const activeDir = await ctx.fileOps.getActiveDirectory();
 const result = await ctx.shell.execute({
     command: 'yt-dlp', args: ['--version'],
-    cwd: '/tmp',
+    cwd: activeDir ? urlToPath(activeDir) : undefined,
 });
 console.log(result.stdout.trim());  // "2024.08.06"
 ```

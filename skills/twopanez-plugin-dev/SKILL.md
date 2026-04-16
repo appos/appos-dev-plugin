@@ -276,7 +276,7 @@ await ctx.workspaces.register({
     schemaVersion: 1,
     id: 'ytdlp-dual-pane',
     name: 'yt-dlp Downloader',
-    source: { type: 'plugin', pluginId: ctx.pluginId },
+    // source is auto-stamped by register() — do not pass it manually
     leftPane: {
         tabs: [
             { type: 'pluginPanel', panelId: 'download' },
@@ -301,12 +301,13 @@ await ctx.workspaces.register({
 >
 > Cache-flag gating (`if (await ctx.cache.get('initialized')) return;`) causes a silent "plugin installed but invisible" bug on every launch after the first. The workspace dropdown is easy to miss, the command palette requires knowing exact names, and the menubar NSStatusItem is a single small icon — none of those are reliable discovery paths. Always apply the workspace unconditionally; the user can still switch to a different workspace after activation and you won't override them until next launch. This is what `appos-plugin-ytdlp` does at Step 11 of `activate()`.
 
-**Panel-open commands must apply the workspace first**: `ctx.ui.showPaneTab(panelId, ...)` only **focuses** an existing tab — it does NOT create tabs. A command like "Open yt-dlp Downloader" that calls `showPaneTab` will silently do nothing if the current workspace has no tab for that panel. Always `await ctx.workspaces.apply(WORKSPACE_ID)` before `showPaneTab` in panel-open commands.
+**Panel-open commands**: `ctx.ui.showPaneTab(panelId, options?)` focuses an existing tab if present, or creates a new tab in the target pane if none exists. For simple panel-open commands, `showPaneTab` alone is sufficient. Use `workspaces.apply()` before `showPaneTab` when the command depends on the plugin's full canonical dual-pane layout (e.g., download panel left + library right).
 
 ```ts
 ctx.commands.register('open-download-panel', {
     title: 'Open yt-dlp Downloader',
     handler: async () => {
+        // Apply workspace first when you need the full dual-pane layout
         try { await ctx.workspaces.apply('ytdlp-dual-pane'); } catch (err) { console.warn(err); }
         try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* workspace apply already surfaced the panel */ }
     },
@@ -419,7 +420,7 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 
 ### Permissions
 
-There are 33 permission scopes. Only request what you use. Common ones:
+Permission scopes (see `PermissionScope` in `plugin-api.d.ts` for the full list). Only request what you use. Common ones:
 
 - `ui.webPanel` — register WebView panels (required for `registerWebPanel`)
 - `ui.sidebar` — register sidebar panels (required for `registerPanel`)
