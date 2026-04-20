@@ -7,7 +7,7 @@
  * @version 2.4.0-fn50
  *
  * Note: WindowSnapshot includes a reserved `plugins: []` field for future
- * per-window plugin state persistence (fn-33). Plugin authors should not
+ * per-window plugin state persistence. Plugin authors should not
  * depend on workspace persistence until the API is stabilized.
  */
 
@@ -348,7 +348,7 @@ interface BeforeHookResult {
 }
 
 // ============================================================================
-// Dependency Management Types (fn-50)
+// Dependency Management Types
 // ============================================================================
 
 /**
@@ -407,7 +407,7 @@ interface DependencyStatus {
 }
 
 // ============================================================================
-// Dependency Manifest Types (fn-50)
+// Dependency Manifest Types
 // ============================================================================
 
 /**
@@ -513,39 +513,39 @@ interface PluginContext {
   readonly dataContracts: DataContractsAPI;
   /** Inter-plugin event channels (Phase 2a). */
   readonly interPluginEvents: InterPluginEventsAPI;
-  /** Smart folder filter type registration and evaluation (fn-13 Phase 2b). */
+  /** Smart folder filter type registration and evaluation. */
   readonly smartFolders: SmartFoldersAPI;
   /**
-   * File preview registry queries and programmatic preview triggering (fn-13 Phase 2b).
+   * File preview registry queries and programmatic preview triggering.
    * Note: `registerProvider` is CorePlugin-only in v1 — JS callers receive ContractValidationError.
    */
   readonly preview: PreviewAPI;
-  /** Host event subscriptions (fn-11 + fn-13.5). */
+  /** Host event subscriptions ( +). */
   readonly events: HostEventsAPI;
-  /** Network fetch and download (fn-14 Phase 2b-ii). Requires `network.outbound` or `network.unrestricted`. */
+  /** Network fetch and download. Requires `network.outbound` or `network.unrestricted`. */
   readonly network: NetworkAPI;
-  /** Shell command execution (fn-14 Phase 2b-ii). Requires `shell.execute`. */
+  /** Shell command execution. Requires `shell.execute`. */
   readonly shell: ShellAPI;
-  /** System clipboard read/write (fn-14 Phase 2b-ii). Requires `clipboard.read` / `clipboard.write`. */
+  /** System clipboard read/write. Requires `clipboard.read` / `clipboard.write`. */
   readonly clipboard: ClipboardAPI;
-  /** Keyboard shortcut registration (fn-15 Phase 2b-iii). Requires `ui.shortcuts`. */
+  /** Keyboard shortcut registration. Requires `ui.shortcuts`. */
   readonly shortcuts: ShortcutsAPI;
-  /** Theme registration and activation (fn-15 Phase 2b-iii). Requires `ui.themes` for mutations. */
+  /** Theme registration and activation. Requires `ui.themes` for mutations. */
   readonly themes: ThemesAPI;
-  /** Workspace template management (fn-40). Requires `workspaces`. */
+  /** Workspace template management. Requires `workspaces`. */
   readonly workspaces: WorkspacesAPI;
-  /** Plugin cache with memory + disk tiers and TTL (fn-41). Requires `cache`. */
+  /** Plugin cache with memory + disk tiers and TTL. Requires `cache`. */
   readonly cache: PluginCacheAPI;
-  /** Toast, HUD, confirmation, and progress feedback (fn-41). Requires `feedback`. */
+  /** Toast, HUD, confirmation, and progress feedback. Requires `feedback`. */
   readonly feedback: PluginFeedbackAPI;
-  /** OAuth 2.0 + PKCE authorization (fn-41). Requires `oauth`. */
+  /** OAuth 2.0 + PKCE authorization. Requires `oauth`. */
   readonly oauth: PluginOAuthAPI;
-  /** Menu bar NSStatusItem management (fn-41). Requires `menubar`. */
+  /** Menu bar NSStatusItem management. Requires `menubar`. */
   readonly menubar: PluginMenuBarAPI;
 }
 
 // ============================================================================
-// Host Events API (fn-11 + fn-13.5)
+// Host Events API ( +)
 // ============================================================================
 
 /**
@@ -607,7 +607,7 @@ interface FileOpCompletedPayload {
  * | `store.pluginUpdated` | none | `{pluginId, fromVersion, toVersion}` |
  * | `store.pluginUninstalled` | none | `{pluginId}` |
  *
- * **Window scoping (fn-32):** Per-window events (`navigation.*`, `selection.*`, `smartFolder.*`)
+ * **Window scoping:** Per-window events (`navigation.*`, `selection.*`, `smartFolder.*`)
  * include an optional `windowId` (UUID string) identifying the source window. Plugins receive
  * events from ALL windows — filter by `windowId` if needed. `windowId` is `undefined` for
  * app-wide events and may be `undefined` during the transition period.
@@ -1043,7 +1043,7 @@ interface UIAPI {
 
   /**
    * Registers a toolbar item.
-   * Requires: `ui.sidebar` (per fn-7 grouping)
+   * Requires: `ui.sidebar` (per grouping)
    * @param id - Unique item identifier.
    * @param options - Toolbar item configuration.
    * @returns Registration ID for cleanup.
@@ -1263,7 +1263,7 @@ interface UIAPI {
     context?: string[];
   }): void;
 
-  // ---- fn-48: WebView Panel API ----
+  // ----: WebView Panel API ----
 
   /**
    * Registers a WebView panel definition.
@@ -1375,7 +1375,7 @@ interface UIAPI {
 }
 
 // ============================================================================
-// WebView Panel Types (fn-48)
+// WebView Panel Types
 // ============================================================================
 
 /**
@@ -1790,7 +1790,7 @@ interface InterPluginEventsAPI {
 }
 
 // ============================================================================
-// Smart Folders API (fn-13 Phase 2b)
+// Smart Folders API
 // ============================================================================
 
 /**
@@ -1895,7 +1895,7 @@ interface FilterEvalResult {
 }
 
 /**
- * Smart folder filter type registration and evaluation API (fn-13 Phase 2b).
+ * Smart folder filter type registration and evaluation API.
  *
  * **v1 scope**: `registerFilterType` registers metadata in `FilterTypeRegistry`.
  * `evaluateFilter` is a utility API — plugins call it directly after retrieving
@@ -1954,11 +1954,11 @@ interface SmartFoldersAPI {
 }
 
 // ============================================================================
-// Preview API (fn-13 Phase 2b)
+// Preview API
 // ============================================================================
 
 /**
- * File preview registry queries and programmatic preview triggering (fn-13 Phase 2b).
+ * File preview registry queries and programmatic preview triggering.
  *
  * **v1 scope**: `registerProvider` is CorePlugin-only. JS callers receive
  * `ContractValidationError` — `NSView` cannot cross the JSC bridge boundary.
@@ -2020,7 +2020,7 @@ interface PreviewAPI {
 }
 
 // ============================================================================
-// Network API (fn-14 Phase 2b-ii)
+// Network API
 // ============================================================================
 
 /**
@@ -2093,7 +2093,7 @@ interface NetworkAPI {
 }
 
 // ============================================================================
-// Shell API (fn-14 Phase 2b-ii)
+// Shell API
 // ============================================================================
 
 /**
@@ -2215,7 +2215,7 @@ interface ShellDataChunk {
  *   cleanup on plugin deactivation.
  * - Output truncation: stdout/stderr capped at 10MB each.
  *
- * **Shell tiers (fn-46):**
+ * **Shell tiers:**
  * - T0 (none): No `shell.execute` declared. Shell calls rejected.
  * - T1 (contained): JS plugins with `shell.execute` but no filesystem-wide perms.
  *   CWD must be within active pane roots. `cwd` is **required** (omitting throws).
@@ -2251,7 +2251,7 @@ interface ShellAPI {
 }
 
 // ============================================================================
-// Clipboard API (fn-14 Phase 2b-ii)
+// Clipboard API
 // ============================================================================
 
 /**
@@ -2290,7 +2290,7 @@ interface ClipboardAPI {
 }
 
 // ============================================================================
-// Shortcuts API (fn-15 Phase 2b-iii)
+// Shortcuts API
 // ============================================================================
 
 /**
@@ -2385,7 +2385,7 @@ interface ShortcutsAPI {
 }
 
 // ============================================================================
-// Themes API (fn-15 Phase 2b-iii)
+// Themes API
 // ============================================================================
 
 /**
@@ -2507,7 +2507,7 @@ interface ThemesAPI {
 }
 
 // ============================================================================
-// Workspace Templates API (fn-40)
+// Workspace Templates API
 // ============================================================================
 
 /**
@@ -2651,7 +2651,7 @@ interface WorkspaceTemplate {
 }
 
 /**
- * Workspace management API (fn-40). All methods require `workspaces` permission.
+ * Workspace management API. All methods require `workspaces` permission.
  *
  * Plugin-registered workspaces are ephemeral — they exist only while the plugin is loaded.
  * The `register()` method automatically stamps `source` as `{ type: "plugin", pluginId }`,
@@ -2711,11 +2711,11 @@ interface WorkspacesAPI {
 }
 
 // ============================================================================
-// Error Codes (fn-14 + fn-15 additions)
+// Error Codes ( + additions)
 // ============================================================================
 
 /**
- * Additional error codes for fn-14 and fn-15 APIs.
+ * Additional error codes for and APIs.
  *
  * These appear as `err.code` on rejected Promises or `context.exception`.
  *
@@ -2731,7 +2731,7 @@ interface WorkspacesAPI {
  */
 
 // ============================================================================
-// Plugin Cache API (fn-41)
+// Plugin Cache API
 // ============================================================================
 
 /** Options for `cache.set()`. */
@@ -2764,7 +2764,7 @@ interface PluginCacheAPI {
 }
 
 // ============================================================================
-// Plugin Feedback API (fn-41)
+// Plugin Feedback API
 // ============================================================================
 
 /** Options for toast/notify. */
@@ -2831,7 +2831,7 @@ interface PluginFeedbackAPI {
 }
 
 // ============================================================================
-// Plugin OAuth API (fn-41)
+// Plugin OAuth API
 // ============================================================================
 
 /** Options for `oauth.authorize()`. */
@@ -2872,7 +2872,7 @@ interface PluginOAuthAPI {
 }
 
 // ============================================================================
-// Plugin Menu Bar API (fn-41)
+// Plugin Menu Bar API
 // ============================================================================
 
 /** Options for `menubar.register()` and `menubar.update()`. */

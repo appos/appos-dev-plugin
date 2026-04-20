@@ -316,7 +316,7 @@ ctx.commands.register('open-download-panel', {
 
 **Re-register on settings change**: for paths that depend on settings (like `fileBrowser.path`), subscribe via `ctx.settings.onKeyChange()` and call `workspaces.register()` again with the updated template. `register()` returns `Promise<string>` (the workspace ID).
 
-## Menu bar (fn-41)
+## Menu bar
 
 ```ts
 await ctx.menubar.register({ icon: 'arrow.down.circle' });
@@ -330,7 +330,7 @@ const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
 
 `ctx.menubar.register({ icon, label? })` — only `icon` and `label` are supported in `MenuBarRegisterOptions`. Drive `setBadge` from your state `subscribe()` so it stays reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
 
-## Smart folder filters (fn-13)
+## Smart folder filters
 
 Filter types let you contribute to Smart Folders. The `evaluate` callback is **synchronous** and invoked from the host in your plugin's JSC isolate, which means closures capture plugin state directly.
 
@@ -351,7 +351,7 @@ await ctx.smartFolders.registerFilterType({
 
 `registerFilterType` returns `Promise<string>` (the namespaced ID). There is no `unregisterFilterType` — filters auto-clean on plugin deactivation. Set a `disposed` flag in the closure so any late `evaluate` calls return `false` safely.
 
-## Lifecycle + dependency management (fn-50)
+## Lifecycle + dependency management
 
 Declare system/plugin dependencies in `plugin.json.dependencies`. The host probes them at activation and pushes status via `ctx.lifecycle.onDependencyStatusChanged`:
 
@@ -437,7 +437,7 @@ Permission scopes (see API comments in `plugin-api.d.ts` for per-namespace requi
 - `network.unrestricted` — unrestricted network access (no domain allowlist)
 - `cache`, `workspaces`, `menubar`, `menubar.globalShortcut`
 - `ui.toolbar` — toolbar contributions
-- `ui.settings` — settings tab contributions (fn-68)
+- `ui.settings` — settings tab contributions
 - `ui.webPanel` also gates `pipeShellToWebPanel` (combined with `shell.execute`)
 
 The full list is documented in API comments throughout `reference/plugin-api.d.ts`.

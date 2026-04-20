@@ -332,7 +332,7 @@ ctx.commands.register('open-download-panel', {
 
 **Re-register on settings change**: for paths that depend on settings (like `fileBrowser.path`), subscribe via `ctx.settings.onKeyChange()` and call `workspaces.register()` again with the updated template. `register()` returns `Promise<string>` (the workspace ID).
 
-## Menu bar (fn-41)
+## Menu bar
 
 ```ts
 await ctx.menubar.register({ icon: 'arrow.down.circle' });
@@ -346,7 +346,7 @@ const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
 
 `ctx.menubar.register({ icon, label? })` — only `icon` and `label` are supported in `MenuBarRegisterOptions`. Drive `setBadge` from your state `subscribe()` so it stays reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
 
-## Smart folder filters (fn-13)
+## Smart folder filters
 
 Filter types let you contribute to Smart Folders. The `evaluate` callback is **synchronous** and invoked from the host in your plugin's JSC isolate, which means closures capture plugin state directly.
 
@@ -367,7 +367,7 @@ await ctx.smartFolders.registerFilterType({
 
 `registerFilterType` returns `Promise<string>` (the namespaced ID). There is no `unregisterFilterType` — filters auto-clean on plugin deactivation. Set a `disposed` flag in the closure so any late `evaluate` calls return `false` safely.
 
-## Lifecycle + dependency management (fn-50)
+## Lifecycle + dependency management
 
 Declare system/plugin dependencies in `plugin.json.dependencies`. The host probes them at activation and pushes status via `ctx.lifecycle.onDependencyStatusChanged`:
 
@@ -453,7 +453,7 @@ Permission scopes (see API comments in `plugin-api.d.ts` for per-namespace requi
 - `network.unrestricted` — unrestricted network access (no domain allowlist)
 - `cache`, `workspaces`, `menubar`, `menubar.globalShortcut`
 - `ui.toolbar` — toolbar contributions
-- `ui.settings` — settings tab contributions (fn-68)
+- `ui.settings` — settings tab contributions
 - `ui.webPanel` also gates `pipeShellToWebPanel` (combined with `shell.execute`)
 
 The full list is documented in API comments throughout `reference/plugin-api.d.ts`.
@@ -597,7 +597,7 @@ declare module '@appos.space/plugin-types' {
 | `ctx.extensionPoints` | Declare/contribute extension points for other plugins | `interPlugin.declare`, `interPlugin.contribute` |
 | `ctx.dataContracts` | Expose queryable data for other plugins | `interPlugin.declare` (expose), `interPlugin.query` (query) |
 | `ctx.interPluginEvents` | Pub/sub between plugins | `interPlugin.declare` (declare), `interPlugin.emit` (emit/subscribe) |
-| `ctx.smartFolders` | Custom filter types for smart folders (fn-13) | `filesystem.read` |
+| `ctx.smartFolders` | Custom filter types for smart folders | `filesystem.read` |
 | `ctx.preview` | File preview registry queries | `filesystem.read` (per-method; `registerProvider` is core-only) |
 | `ctx.events` | Subscribe to navigation, pane activation, selection, app.willQuit, menubar.clicked | per-event (see `HostEventsAPI` in `plugin-api.d.ts`) |
 | `ctx.network` | HTTP fetch and file download | `network.outbound` / `network.unrestricted` |
@@ -605,12 +605,12 @@ declare module '@appos.space/plugin-types' {
 | `ctx.clipboard` | Read/write system clipboard | `clipboard.read`, `clipboard.write` |
 | `ctx.shortcuts` | Register keyboard shortcuts | `ui.shortcuts` |
 | `ctx.themes` | Register/manage color themes | `ui.themes` |
-| `ctx.workspaces` | Register/apply workspace templates (fn-40) | `workspaces` |
-| `ctx.cache` | Memory+SQLite cache with TTL (fn-41) | `cache` |
-| `ctx.feedback` | Toasts, HUD, confirmation, progress (fn-41) | `feedback`, `feedback.confirm` |
-| `ctx.oauth` | OAuth 2.0 + PKCE (fn-41) | `oauth`, `oauth.{id}` |
-| `ctx.menubar` | NSStatusItem management (fn-41) | `menubar` |
-| `ctx.lifecycle` | Dependency status notifications (fn-50) | (none) |
+| `ctx.workspaces` | Register/apply workspace templates | `workspaces` |
+| `ctx.cache` | Memory+SQLite cache with TTL | `cache` |
+| `ctx.feedback` | Toasts, HUD, confirmation, progress | `feedback`, `feedback.confirm` |
+| `ctx.oauth` | OAuth 2.0 + PKCE | `oauth`, `oauth.{id}` |
+| `ctx.menubar` | NSStatusItem management | `menubar` |
+| `ctx.lifecycle` | Dependency status notifications | (none) |
 
 ## Permissions
 
@@ -656,7 +656,7 @@ Each has a `type` discriminator and a typed `properties` object. `listItem` also
 
 **`MenuAction`**: `{ title, icon?, action?, destructive? }`
 
-### New types (fn-48+)
+### New types
 
 **`grid`** — Renders children in a `LazyVGrid` with flexible columns.
 - Properties: `columns` (number, default 3), `spacing` (number, default 8)
@@ -684,18 +684,18 @@ See the `ViewDescriptor` interface in `plugin-api.d.ts` for full signatures.
 - `activation.events` — currently only `"onStartup"` is supported
 - `permissions` — array from the permission scopes listed above
 - `shellCommands` — allowlist of commands if `shell.execute` is declared
-- `shellDeniedPatterns` — regex denylist evaluated before the allowlist (fn-46)
+- `shellDeniedPatterns` — regex denylist evaluated before the allowlist
 - `networkDomains` — allowlist of hostnames if `network.outbound` is declared
-- `dependencies.system[]` — system binaries with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`, `description` (fn-50)
+- `dependencies.system[]` — system binaries with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`, `description`
 - `dependencies.plugins[]` — other plugins the plugin depends on
 - `settings[]` — user-configurable settings (`string`, `enum`, `bool`, `number`)
-- `oauth.providers[]` — OAuth provider declarations (fn-41)
-- `menubar.icon`, `menubar.label` — menu bar config (fn-41)
+- `oauth.providers[]` — OAuth provider declarations
+- `menubar.icon`, `menubar.label` — menu bar config
 - `scope` — `"app"` (default, single shared instance) or `"window"` (per-window instance, JS plugins only; core-swift always behaves as `"app"`)
 - `isolation` — `"jscontext"` (default, in-process) or `"xpc"` (sandboxed, future)
 - `categories`, `keywords` — Plugin Store metadata
 
-## Plugin dependencies (fn-50)
+## Plugin dependencies
 
 ### Manifest schema
 
@@ -776,7 +776,7 @@ Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to in
 
 > **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet — they will reject or return empty results. Use `ctx.lifecycle.onDependencyStatusChanged(handler)` (which IS wired) to receive status updates pushed by the host at activation time. The host probes dependencies automatically; plugins do not need to trigger checks manually.
 
-## Workspaces (fn-40)
+## Workspaces
 
 `ctx.workspaces.register(template)` registers a template defining a dual-pane layout. Returns `Promise<string>` (the workspace ID).
 
@@ -807,19 +807,19 @@ await ctx.workspaces.register({
 
 Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end of `activate()`. Do NOT gate on a first-run cache flag — that's a documented landmine that causes "plugin installed but no UI visible" on second launch and beyond. See `patterns.md` section 6 for the full explanation.
 
-## Menu bar (fn-41)
+## Menu bar
 
 `ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears).
 
-## Smart folders (fn-13)
+## Smart folders
 
 `ctx.smartFolders.registerFilterType({ id, displayName, editorConfig?, evaluate })` registers a custom filter type in `FilterTypeRegistry`. Returns `Promise<string>` (the namespaced filter type ID `{pluginId}.filter.{id}`). The `evaluate` closure runs **synchronously** against each item `{ url: string, metadata: Record<string, unknown> }` — keep it cheap. There is no unregister API; filters auto-clean on plugin deactivation. Use a `disposed` flag in the closure to guard against late calls.
 
-## Cache (fn-41)
+## Cache
 
 `ctx.cache.get(key)` returns the **deserialized** value (no `JSON.parse` needed — the host handles it). `ctx.cache.set(key, value, { persist: true, ttl: 3600 })` writes with durability. `ttl` is in **seconds** (number, not a duration string). Memory + SQLite tiers are merged transparently.
 
-## Feedback (fn-41)
+## Feedback
 
 - `ctx.feedback.toast(message, { kind: 'info' | 'success' | 'warning' | 'error' })` — always shows a toast
 - `ctx.feedback.hud(message, { kind?, progress? })` — always shows a HUD panel; returns handle ID
@@ -829,7 +829,7 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 - `ctx.feedback.systemNotification(title, message, { kind? })` — always sends a system notification
 - `ctx.feedback.notify(message, { kind? })` — adaptive routing: focused window -> toast, unfocused -> HUD, background -> system notification
 
-## WebView panels (fn-48)
+## WebView panels
 
 WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel://` scheme. Use for rich interactive UI: forms, streaming progress, media playback, complex layouts.
 
@@ -926,7 +926,7 @@ body {
 .button { background-color: var(--twopanez-accent); }
 ```
 
-## Streaming shell output (fn-47)
+## Streaming shell output
 
 `ctx.shell.execute()` supports an `onData` callback for real-time streaming output. When provided, chunks are delivered as the process writes to stdout/stderr. The final Promise still resolves with the full buffered result (subject to 10MB truncation), but `onData` sees all data including bytes beyond the truncation threshold.
 
@@ -972,7 +972,7 @@ await ctx.shell.execute({
 
 Chunks arrive on the plugin's serial queue. If `onData` throws, the error is logged but the process continues — streaming is best-effort. Order is preserved per-stream but stdout/stderr interleaving is OS-dependent.
 
-## Shell security tiers (fn-46)
+## Shell security tiers
 
 Shell execution is governed by a three-tier security model:
 
@@ -2024,7 +2024,7 @@ interface BeforeHookResult {
 }
 
 // ============================================================================
-// Dependency Management Types (fn-50)
+// Dependency Management Types
 // ============================================================================
 
 type DependencyType = "system" | "plugin";
@@ -2052,7 +2052,7 @@ interface DependencyStatus {
 }
 
 // ============================================================================
-// Dependency Manifest Types (fn-50)
+// Dependency Manifest Types
 // ============================================================================
 
 interface SystemDependencyCheck {
@@ -2114,7 +2114,7 @@ interface PluginContext {
 }
 
 // ============================================================================
-// Host Events API (fn-11 + fn-13.5)
+// Host Events API ( +)
 // ============================================================================
 
 interface FileOpCompletedPayload {
@@ -2277,7 +2277,7 @@ interface UIAPI {
     context?: string[];
   }): void;
 
-  // ---- fn-48: WebView Panel API ----
+  // ----: WebView Panel API ----
 
   registerWebPanel(id: string, options: WebPanelOptions): void;
 
@@ -2291,7 +2291,7 @@ interface UIAPI {
 }
 
 // ============================================================================
-// WebView Panel Types (fn-48)
+// WebView Panel Types
 // ============================================================================
 
 interface WebPanelOptions {
@@ -2431,7 +2431,7 @@ interface InterPluginEventsAPI {
 }
 
 // ============================================================================
-// Smart Folders API (fn-13 Phase 2b)
+// Smart Folders API
 // ============================================================================
 
 interface RegisterFilterTypeOptions {
@@ -2500,7 +2500,7 @@ interface SmartFoldersAPI {
 }
 
 // ============================================================================
-// Preview API (fn-13 Phase 2b)
+// Preview API
 // ============================================================================
 
 interface PreviewAPI {
@@ -2514,7 +2514,7 @@ interface PreviewAPI {
 }
 
 // ============================================================================
-// Network API (fn-14 Phase 2b-ii)
+// Network API
 // ============================================================================
 
 interface NetworkFetchOptions {
@@ -2536,7 +2536,7 @@ interface NetworkAPI {
 }
 
 // ============================================================================
-// Shell API (fn-14 Phase 2b-ii)
+// Shell API
 // ============================================================================
 
 interface ShellExecuteOptions {
@@ -2570,7 +2570,7 @@ interface ShellAPI {
 }
 
 // ============================================================================
-// Clipboard API (fn-14 Phase 2b-ii)
+// Clipboard API
 // ============================================================================
 
 interface ClipboardAPI {
@@ -2580,7 +2580,7 @@ interface ClipboardAPI {
 }
 
 // ============================================================================
-// Shortcuts API (fn-15 Phase 2b-iii)
+// Shortcuts API
 // ============================================================================
 
 interface ShortcutRegisterOptions {
@@ -2607,7 +2607,7 @@ interface ShortcutsAPI {
 }
 
 // ============================================================================
-// Themes API (fn-15 Phase 2b-iii)
+// Themes API
 // ============================================================================
 
 interface ThemeRegisterOptions {
@@ -2637,7 +2637,7 @@ interface ThemesAPI {
 }
 
 // ============================================================================
-// Workspace Templates API (fn-40)
+// Workspace Templates API
 // ============================================================================
 
 interface WorkspaceTemplateSource {
@@ -2719,11 +2719,11 @@ interface WorkspacesAPI {
 }
 
 // ============================================================================
-// Error Codes (fn-14 + fn-15 additions)
+// Error Codes ( + additions)
 // ============================================================================
 
 // ============================================================================
-// Plugin Cache API (fn-41)
+// Plugin Cache API
 // ============================================================================
 
 interface CacheSetOptions {
@@ -2741,7 +2741,7 @@ interface PluginCacheAPI {
 }
 
 // ============================================================================
-// Plugin Feedback API (fn-41)
+// Plugin Feedback API
 // ============================================================================
 
 interface FeedbackToastOptions {
@@ -2780,7 +2780,7 @@ interface PluginFeedbackAPI {
 }
 
 // ============================================================================
-// Plugin OAuth API (fn-41)
+// Plugin OAuth API
 // ============================================================================
 
 interface OAuthAuthorizeOptions {
@@ -2803,7 +2803,7 @@ interface PluginOAuthAPI {
 }
 
 // ============================================================================
-// Plugin Menu Bar API (fn-41)
+// Plugin Menu Bar API
 // ============================================================================
 
 interface MenuBarRegisterOptions {

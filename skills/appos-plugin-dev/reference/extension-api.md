@@ -40,7 +40,7 @@ declare module '@appos.space/plugin-types' {
 | `ctx.extensionPoints` | Declare/contribute extension points for other plugins | `interPlugin.declare`, `interPlugin.contribute` |
 | `ctx.dataContracts` | Expose queryable data for other plugins | `interPlugin.declare` (expose), `interPlugin.query` (query) |
 | `ctx.interPluginEvents` | Pub/sub between plugins | `interPlugin.declare` (declare), `interPlugin.emit` (emit/subscribe) |
-| `ctx.smartFolders` | Custom filter types for smart folders (fn-13) | `filesystem.read` |
+| `ctx.smartFolders` | Custom filter types for smart folders | `filesystem.read` |
 | `ctx.preview` | File preview registry queries | `filesystem.read` (per-method; `registerProvider` is core-only) |
 | `ctx.events` | Subscribe to navigation, pane activation, selection, app.willQuit, menubar.clicked | per-event (see `HostEventsAPI` in `plugin-api.d.ts`) |
 | `ctx.network` | HTTP fetch and file download | `network.outbound` / `network.unrestricted` |
@@ -48,12 +48,12 @@ declare module '@appos.space/plugin-types' {
 | `ctx.clipboard` | Read/write system clipboard | `clipboard.read`, `clipboard.write` |
 | `ctx.shortcuts` | Register keyboard shortcuts | `ui.shortcuts` |
 | `ctx.themes` | Register/manage color themes | `ui.themes` |
-| `ctx.workspaces` | Register/apply workspace templates (fn-40) | `workspaces` |
-| `ctx.cache` | Memory+SQLite cache with TTL (fn-41) | `cache` |
-| `ctx.feedback` | Toasts, HUD, confirmation, progress (fn-41) | `feedback`, `feedback.confirm` |
-| `ctx.oauth` | OAuth 2.0 + PKCE (fn-41) | `oauth`, `oauth.{id}` |
-| `ctx.menubar` | NSStatusItem management (fn-41) | `menubar` |
-| `ctx.lifecycle` | Dependency status notifications (fn-50) | (none) |
+| `ctx.workspaces` | Register/apply workspace templates | `workspaces` |
+| `ctx.cache` | Memory+SQLite cache with TTL | `cache` |
+| `ctx.feedback` | Toasts, HUD, confirmation, progress | `feedback`, `feedback.confirm` |
+| `ctx.oauth` | OAuth 2.0 + PKCE | `oauth`, `oauth.{id}` |
+| `ctx.menubar` | NSStatusItem management | `menubar` |
+| `ctx.lifecycle` | Dependency status notifications | (none) |
 
 ## Permissions
 
@@ -99,7 +99,7 @@ Each has a `type` discriminator and a typed `properties` object. `listItem` also
 
 **`MenuAction`**: `{ title, icon?, action?, destructive? }`
 
-### New types (fn-48+)
+### New types
 
 **`grid`** — Renders children in a `LazyVGrid` with flexible columns.
 - Properties: `columns` (number, default 3), `spacing` (number, default 8)
@@ -127,18 +127,18 @@ See the `ViewDescriptor` interface in `plugin-api.d.ts` for full signatures.
 - `activation.events` — currently only `"onStartup"` is supported
 - `permissions` — array from the permission scopes listed above
 - `shellCommands` — allowlist of commands if `shell.execute` is declared
-- `shellDeniedPatterns` — regex denylist evaluated before the allowlist (fn-46)
+- `shellDeniedPatterns` — regex denylist evaluated before the allowlist
 - `networkDomains` — allowlist of hostnames if `network.outbound` is declared
-- `dependencies.system[]` — system binaries with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`, `description` (fn-50)
+- `dependencies.system[]` — system binaries with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`, `description`
 - `dependencies.plugins[]` — other plugins the plugin depends on
 - `settings[]` — user-configurable settings (`string`, `enum`, `bool`, `number`)
-- `oauth.providers[]` — OAuth provider declarations (fn-41)
-- `menubar.icon`, `menubar.label` — menu bar config (fn-41)
+- `oauth.providers[]` — OAuth provider declarations
+- `menubar.icon`, `menubar.label` — menu bar config
 - `scope` — `"app"` (default, single shared instance) or `"window"` (per-window instance, JS plugins only; core-swift always behaves as `"app"`)
 - `isolation` — `"jscontext"` (default, in-process) or `"xpc"` (sandboxed, future)
 - `categories`, `keywords` — Plugin Store metadata
 
-## Plugin dependencies (fn-50)
+## Plugin dependencies
 
 ### Manifest schema
 
@@ -219,7 +219,7 @@ Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to in
 
 > **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet — they will reject or return empty results. Use `ctx.lifecycle.onDependencyStatusChanged(handler)` (which IS wired) to receive status updates pushed by the host at activation time. The host probes dependencies automatically; plugins do not need to trigger checks manually.
 
-## Workspaces (fn-40)
+## Workspaces
 
 `ctx.workspaces.register(template)` registers a template defining a dual-pane layout. Returns `Promise<string>` (the workspace ID).
 
@@ -250,19 +250,19 @@ await ctx.workspaces.register({
 
 Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end of `activate()`. Do NOT gate on a first-run cache flag — that's a documented landmine that causes "plugin installed but no UI visible" on second launch and beyond. See `patterns.md` section 6 for the full explanation.
 
-## Menu bar (fn-41)
+## Menu bar
 
 `ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears).
 
-## Smart folders (fn-13)
+## Smart folders
 
 `ctx.smartFolders.registerFilterType({ id, displayName, editorConfig?, evaluate })` registers a custom filter type in `FilterTypeRegistry`. Returns `Promise<string>` (the namespaced filter type ID `{pluginId}.filter.{id}`). The `evaluate` closure runs **synchronously** against each item `{ url: string, metadata: Record<string, unknown> }` — keep it cheap. There is no unregister API; filters auto-clean on plugin deactivation. Use a `disposed` flag in the closure to guard against late calls.
 
-## Cache (fn-41)
+## Cache
 
 `ctx.cache.get(key)` returns the **deserialized** value (no `JSON.parse` needed — the host handles it). `ctx.cache.set(key, value, { persist: true, ttl: 3600 })` writes with durability. `ttl` is in **seconds** (number, not a duration string). Memory + SQLite tiers are merged transparently.
 
-## Feedback (fn-41)
+## Feedback
 
 - `ctx.feedback.toast(message, { kind: 'info' | 'success' | 'warning' | 'error' })` — always shows a toast
 - `ctx.feedback.hud(message, { kind?, progress? })` — always shows a HUD panel; returns handle ID
@@ -272,7 +272,7 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 - `ctx.feedback.systemNotification(title, message, { kind? })` — always sends a system notification
 - `ctx.feedback.notify(message, { kind? })` — adaptive routing: focused window -> toast, unfocused -> HUD, background -> system notification
 
-## WebView panels (fn-48)
+## WebView panels
 
 WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel://` scheme. Use for rich interactive UI: forms, streaming progress, media playback, complex layouts.
 
@@ -369,7 +369,7 @@ body {
 .button { background-color: var(--twopanez-accent); }
 ```
 
-## Streaming shell output (fn-47)
+## Streaming shell output
 
 `ctx.shell.execute()` supports an `onData` callback for real-time streaming output. When provided, chunks are delivered as the process writes to stdout/stderr. The final Promise still resolves with the full buffered result (subject to 10MB truncation), but `onData` sees all data including bytes beyond the truncation threshold.
 
@@ -415,7 +415,7 @@ await ctx.shell.execute({
 
 Chunks arrive on the plugin's serial queue. If `onData` throws, the error is logged but the process continues — streaming is best-effort. Order is preserved per-stream but stdout/stderr interleaving is OS-dependent.
 
-## Shell security tiers (fn-46)
+## Shell security tiers
 
 Shell execution is governed by a three-tier security model:
 
