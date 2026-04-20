@@ -1,6 +1,6 @@
 # appos-dev
 
-A Claude Code plugin for creating, building, testing, and deploying [AppOS](https://appos.space) file manager plugins using the `@appos.space` SDK.
+A Claude Code plugin for creating, building, testing, and deploying [AppOS](https://appos.space) workspace manager plugins using the `@appos.space` SDK.
 
 ## What's new in v2.0
 
@@ -8,7 +8,7 @@ v2.0 is a full rewrite targeting the SDK+WebView flagship pattern used by `appos
 
 - **SDK-based scaffolding** — `new-plugin` now writes `package.json` with `@appos.space/plugin-types` (declaration-only types), `@appos.space/plugin-utils` (runtime helpers), and `@appos.space/view-builders` (typed view builders), plus a `tsconfig.json` with `verbatimModuleSyntax: true` and a `build.mjs` esbuild-API build script.
 - **WebView panels are first-class** — new `webview-panels` skill covers `registerWebPanel`, the host-injected webview bridge, CSP constraints, typed message protocols, throttled broadcasts, and `pipeShellToWebPanel` for streaming CLI output directly to the UI.
-- **22 namespaces, 33 permissions** — updated to match the current `@appos.space/plugin-types` surface. Adds `menubar`, `workspaces`, `smartFolders`, `cache`, `feedback`, `webview`, and more.
+- **22 namespaces, 34 permissions** — updated to match the current `@appos.space/plugin-types` surface. Adds `menubar`, `workspaces`, `smartFolders`, `cache`, `feedback`, `webview`, and more.
 - **minHostVersion landmine documented** — the single most common "plugin won't appear in Settings" bug now has a prominent warning everywhere it matters.
 - **Canonical reference** — `appos-plugin-ytdlp` is the flagship plugin that exercises every supported SDK feature. Skills and agents point at it for ground truth.
 
@@ -45,7 +45,7 @@ claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
 
 | Skill | Triggers on |
 |-------|-------------|
-| appos-plugin-dev | "AppOS plugin", "file manager plugin", PluginContext, SDK packages, workspaces, menubar |
+| appos-plugin-dev | "AppOS plugin", "workspace manager plugin", PluginContext, SDK packages, workspaces, menubar |
 | webview-panels | "registerWebPanel", "postToWebPanel", "pipeShellToWebPanel", "bridge.js", "shell chunks", CSP, webview |
 
 ## Agents
@@ -57,7 +57,7 @@ claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
 
 ## Prerequisites
 
-- [AppOS](https://appos.space) file manager for macOS
+- [AppOS](https://appos.space) workspace manager for macOS
 - [Node.js](https://nodejs.org) 18+ with npm
 - The AppOS SDK checked out at `~/Documents/GitHub/AppOS/plugin-sdk/` (for `file:` dependencies during local development)
 - The canonical reference plugin `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` (for patterns and examples)

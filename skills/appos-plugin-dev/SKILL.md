@@ -1,6 +1,6 @@
 ---
 description: >
-  Build plugins for AppOS, the dual-pane macOS file manager. Use this
+  Build plugins for AppOS, the dual-pane macOS workspace manager. Use this
   skill whenever someone asks about creating, building, testing, or deploying AppOS
   plugins, or when working in a repo that imports from @appos.space/*. Triggers on:
   "AppOS plugin", "@appos.space/plugin-types", "registerWebPanel",
@@ -12,7 +12,7 @@ description: >
 
 # AppOS Plugin Development
 
-Build plugins for AppOS, a dual-pane file manager for macOS. Plugins are TypeScript modules compiled to IIFE bundles and executed inside JavaScriptCore (JSC). They receive a typed `PluginContext` object that exposes 22 API namespaces for interacting with the host.
+Build plugins for AppOS, a dual-pane workspace manager for macOS. Plugins are TypeScript modules compiled to IIFE bundles and executed inside JavaScriptCore (JSC). They receive a typed `PluginContext` object that exposes 22 API namespaces for interacting with the host.
 
 The canonical reference implementation is **`appos-plugin-ytdlp`** — the flagship yt-dlp GUI plugin. When designing anything non-trivial, mirror its patterns.
 
@@ -388,6 +388,7 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
         "feedback"
     ],
     "shellCommands": ["yt-dlp", "ffmpeg"],
+    "scope": "app",
     "dependencies": {
         "system": [
             {
@@ -434,7 +435,9 @@ Permission scopes (see API comments in `plugin-api.d.ts` for per-namespace requi
 - `feedback.confirm` — `ctx.feedback.alert()` (blocking modal)
 - `network.outbound` — `ctx.network.fetch()` / `.download()` (also list domains in `networkDomains`)
 - `network.unrestricted` — unrestricted network access (no domain allowlist)
-- `cache`, `workspaces`, `menubar`
+- `cache`, `workspaces`, `menubar`, `menubar.globalShortcut`
+- `ui.toolbar` — toolbar contributions
+- `ui.settings` — settings tab contributions (fn-68)
 - `ui.webPanel` also gates `pipeShellToWebPanel` (combined with `shell.execute`)
 
 The full list is documented in API comments throughout `reference/plugin-api.d.ts`.

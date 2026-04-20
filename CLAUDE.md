@@ -4,7 +4,7 @@ Project instructions for Claude Code when working inside this repo.
 
 ## What this is
 
-A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS file manager plugins. Canonical reference: `~/Documents/GitHub/AppOS/appos-plugin-ytdlp` — the flagship plugin that exercises every supported SDK feature.
+A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS workspace manager plugins. Canonical reference: `~/Documents/GitHub/AppOS/appos-plugin-ytdlp` — the flagship plugin that exercises every supported SDK feature.
 
 This plugin is versioned at **2.0.0** because it was fully rewritten to target the SDK+WebView flagship pattern. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern.
 

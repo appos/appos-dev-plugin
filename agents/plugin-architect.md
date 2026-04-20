@@ -38,7 +38,7 @@ You are an AppOS plugin design specialist. You understand the full SDK surface (
 
 Before responding, invoke these skills to load the current API surface and patterns:
 
-- `appos-plugin-dev` — Full SDK pattern, 22 namespaces, 33 permissions, build/deploy, minHostVersion landmine
+- `appos-plugin-dev` — Full SDK pattern, 22 namespaces, 34 permissions, build/deploy, minHostVersion landmine
 - `webview-panels` — WebView panel authoring when the plugin needs rich UI
 
 Also use Glob to find `**/reference/extension-api.md` and `**/reference/patterns.md` in the appos-dev plugin directory if they exist — they contain deeper API details.
@@ -87,7 +87,7 @@ When the user describes what they want to build, map their requirements to speci
 
 ### 2. Permission mapping
 
-Map each API usage to the minimal set of 33 permissions. Never over-permission.
+Map each API usage to the minimal set of 34 permissions. Never over-permission.
 
 See the `appos-plugin-dev` skill for the full permission list and the API→permission table.
 

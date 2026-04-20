@@ -59,7 +59,7 @@ declare module '@appos.space/plugin-types' {
 
 Permission scopes are enforced by the host at runtime. The following are the scopes referenced in `plugin-api.d.ts` API comments:
 
-**UI** — `ui.sidebar`, `ui.statusBar`, `ui.contextMenu`, `ui.notifications`, `ui.sheets`, `ui.shortcuts`, `ui.themes`, `ui.preview`, `ui.aiChat`, `ui.webPanel`
+**UI** — `ui.sidebar`, `ui.statusBar`, `ui.toolbar`, `ui.contextMenu`, `ui.notifications`, `ui.sheets`, `ui.shortcuts`, `ui.themes`, `ui.preview`, `ui.aiChat`, `ui.webPanel`, `ui.settings`
 
 **Filesystem** — `filesystem.read`, `filesystem.write`, `filesystem.watch`, `filesystem.readAll`, `filesystem.writeAll`
 
@@ -75,7 +75,9 @@ Permission scopes are enforced by the host at runtime. The following are the sco
 
 **Workspaces / caching / feedback** — `workspaces`, `cache`, `feedback`, `feedback.confirm`
 
-**Advanced integrations** — `menubar`, `oauth`, `` `oauth.${string}` ``
+**Advanced integrations** — `menubar`, `menubar.globalShortcut`, `oauth`, `` `oauth.${string}` ``
+
+**Alias**: `"network.fetch"` is accepted as an alias for `"network.outbound"`. Use the canonical name in new plugins.
 
 **If you declare `shell.execute`**, you MUST also declare `"shellCommands": ["..."]` with the exact commands the plugin invokes. The sandbox blocks any command not in that list.
 
@@ -132,6 +134,8 @@ See the `ViewDescriptor` interface in `plugin-api.d.ts` for full signatures.
 - `settings[]` — user-configurable settings (`string`, `enum`, `bool`, `number`)
 - `oauth.providers[]` — OAuth provider declarations (fn-41)
 - `menubar.icon`, `menubar.label` — menu bar config (fn-41)
+- `scope` — `"app"` (default, single shared instance) or `"window"` (per-window instance, JS plugins only; core-swift always behaves as `"app"`)
+- `isolation` — `"jscontext"` (default, in-process) or `"xpc"` (sandboxed, future)
 - `categories`, `keywords` — Plugin Store metadata
 
 ## Plugin dependencies (fn-50)
