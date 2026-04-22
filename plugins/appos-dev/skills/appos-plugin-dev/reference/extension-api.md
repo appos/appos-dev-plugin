@@ -252,7 +252,7 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 
 ## Menu bar
 
-`ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears).
+`ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. **You MUST call `ctx.menubar.setContent(viewDescriptor)` to populate the popover** — without it, clicking the icon opens a popover that says "No content". Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears). Update both `setContent` and `setBadge` reactively from your state subscriber.
 
 ## Smart folders
 

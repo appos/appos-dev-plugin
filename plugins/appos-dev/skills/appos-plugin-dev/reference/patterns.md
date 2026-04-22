@@ -233,8 +233,16 @@ Then, at the end of `activate()`:
 // activate() runs once per host launch, so this is effectively once-per-launch.
 // The user can still switch workspaces manually after activation and we won't
 // override them again until next launch.
+//
+// IMPORTANT: apply() returns false (not an error) when no browser window is
+// focused — e.g. when the plugin first activates from the Settings sheet.
+// Always fall back to showPaneTab() so the user sees something.
 try {
-    await ctx.workspaces.apply(WORKSPACE_ID);
+    const applied = await ctx.workspaces.apply(WORKSPACE_ID);
+    if (!applied) {
+        // No browser window was frontmost (Settings was focused, etc.)
+        try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* ok */ }
+    }
 } catch (err) {
     console.warn('[my-plugin] workspaces.apply on activation failed:', err);
 }
@@ -258,15 +266,28 @@ ctx.commands.register('open-download-panel', {
 
 **Note**: `ctx.cache.get` returns the **deserialized** value (no JSON.parse). Pass `persist: true` for durability across restarts.
 
-## 7. Menubar registration with transactional rollback
+## 7. Menubar registration with popover content
 
 **File**: `src/menubar/menubar.ts`
 
 ```ts
 import type { PluginContext } from '@appos.space/plugin-types';
+import { vstack, section, listItem, button } from '@appos.space/view-builders';
 
 export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
     await ctx.menubar.register({ icon: 'arrow.down.circle' });
+
+    // REQUIRED: populate the popover — without this, clicking shows "No content"
+    function buildPopoverContent() {
+        const count = state.getQueue().length;
+        return vstack([
+            section('Downloads', { icon: 'arrow.down.circle', badge: String(count) }, [
+                listItem('Active downloads', { icon: 'arrow.down', subtitle: `${count} in progress` }),
+            ]),
+            button('Open Dashboard', { action: 'open-dashboard' }),
+        ]);
+    }
+    await ctx.menubar.setContent(buildPopoverContent());
 
     let unsubscribed = false;
     // ctx.events.subscribe returns a string token, not a disposer
@@ -276,10 +297,11 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
         try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* workspace apply already surfaced it */ }
     });
 
-    // Update badge as queue size changes
+    // Update badge AND popover content as queue changes
     const unsubscribeQueue = state.subscribe(() => {
         const count = state.getQueue().length;
         ctx.menubar.setBadge(count > 0 ? count : 0);
+        ctx.menubar.setContent(buildPopoverContent()).catch(() => {});
     });
 
     return () => {
@@ -290,6 +312,8 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
     };
 }
 ```
+
+**Popover content is mandatory**: the host shows a popover when the menubar icon is clicked. Without `setContent()`, it says "No content". Always call `setContent()` after `register()` and update it reactively alongside `setBadge()`.
 
 **Transactional init**: if any step fails after `register` succeeds, call `remove()` in the catch so the menu bar doesn't leak a dangling item on activation failure.
 

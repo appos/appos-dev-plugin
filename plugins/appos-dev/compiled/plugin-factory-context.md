@@ -338,13 +338,21 @@ ctx.commands.register('open-download-panel', {
 await ctx.menubar.register({ icon: 'arrow.down.circle' });
 await ctx.menubar.setBadge(activeCount);  // 0 clears
 
+// REQUIRED: populate the popover — without this, clicking shows "No content"
+await ctx.menubar.setContent(vstack([
+    section('Downloads', { icon: 'arrow.down.circle', badge: String(activeCount) }, [
+        listItem('Active downloads', { icon: 'arrow.down', subtitle: `${activeCount} in progress` }),
+    ]),
+    button('Open Dashboard', { action: 'open-dashboard' }),
+]));
+
 const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
     await ctx.workspaces.apply('ytdlp-dual-pane');
 });
 // Cleanup: ctx.events.unsubscribe(clickToken)
 ```
 
-`ctx.menubar.register({ icon, label? })` — only `icon` and `label` are supported in `MenuBarRegisterOptions`. Drive `setBadge` from your state `subscribe()` so it stays reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
+`ctx.menubar.register({ icon, label? })` creates the NSStatusItem. **You MUST call `ctx.menubar.setContent(viewDescriptor)` to populate the popover** — without it, clicking the icon opens a popover that says "No content". Drive both `setBadge` and `setContent` from your state `subscribe()` so they stay reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
 
 ## Smart folder filters
 
@@ -809,7 +817,7 @@ Apply via `ctx.workspaces.apply('ytdlp-workspace')` unconditionally at the end o
 
 ## Menu bar
 
-`ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears).
+`ctx.menubar.register({ icon, label? })` adds an NSStatusItem to the system menu bar. **You MUST call `ctx.menubar.setContent(viewDescriptor)` to populate the popover** — without it, clicking the icon opens a popover that says "No content". Subscribe to `ctx.events.subscribe('menubar.clicked', handler)` to respond to clicks (returns a token string; clean up with `ctx.events.unsubscribe(token)`). Use `ctx.menubar.setBadge(count)` to update the badge count (0 clears). Update both `setContent` and `setBadge` reactively from your state subscriber.
 
 ## Smart folders
 
@@ -1274,15 +1282,28 @@ ctx.commands.register('open-download-panel', {
 
 **Note**: `ctx.cache.get` returns the **deserialized** value (no JSON.parse). Pass `persist: true` for durability across restarts.
 
-## 7. Menubar registration with transactional rollback
+## 7. Menubar registration with popover content
 
 **File**: `src/menubar/menubar.ts`
 
 ```ts
 import type { PluginContext } from '@appos.space/plugin-types';
+import { vstack, section, listItem, button } from '@appos.space/view-builders';
 
 export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
     await ctx.menubar.register({ icon: 'arrow.down.circle' });
+
+    // REQUIRED: populate the popover — without this, clicking shows "No content"
+    function buildPopoverContent() {
+        const count = state.getQueue().length;
+        return vstack([
+            section('Downloads', { icon: 'arrow.down.circle', badge: String(count) }, [
+                listItem('Active downloads', { icon: 'arrow.down', subtitle: `${count} in progress` }),
+            ]),
+            button('Open Dashboard', { action: 'open-dashboard' }),
+        ]);
+    }
+    await ctx.menubar.setContent(buildPopoverContent());
 
     let unsubscribed = false;
     // ctx.events.subscribe returns a string token, not a disposer
@@ -1292,10 +1313,11 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
         try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* workspace apply already surfaced it */ }
     });
 
-    // Update badge as queue size changes
+    // Update badge AND popover content as queue changes
     const unsubscribeQueue = state.subscribe(() => {
         const count = state.getQueue().length;
         ctx.menubar.setBadge(count > 0 ? count : 0);
+        ctx.menubar.setContent(buildPopoverContent()).catch(() => {});
     });
 
     return () => {
@@ -1306,6 +1328,8 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
     };
 }
 ```
+
+**Popover content is mandatory**: the host shows a popover when the menubar icon is clicked. Without `setContent()`, it says "No content". Always call `setContent()` after `register()` and update it reactively alongside `setBadge()`.
 
 **Transactional init**: if any step fails after `register` succeeds, call `remove()` in the catch so the menu bar doesn't leak a dangling item on activation failure.
 

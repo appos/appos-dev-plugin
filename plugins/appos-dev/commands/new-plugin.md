@@ -41,7 +41,7 @@ These skills contain the canonical APIs, file layout, and gotchas. Do not procee
 ## 3. Plan permissions and APIs
 
 From the one-sentence description, decide:
-- **Permissions** — start minimal. `ui.sidebar` for any panel, `ui.webPanel` for WebView, `shell.execute` + `shellCommands: [...]` for CLI wrappers, `filesystem.read`/`filesystem.write` for file work, `cache` for persistence.
+- **Permissions** — start minimal. `ui.sidebar` for any panel, `ui.webPanel` + `webview` for WebView panels (BOTH required), `shell.execute` + `shellCommands: [...]` for CLI wrappers, `filesystem.read`/`filesystem.write` for file work, `cache` for persistence.
 - **System dependencies** — CLIs to probe on startup (with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`).
 - **Settings** — `string`, `enum`, or `boolean` keys shown in the plugin settings sheet.
 - **Rendering mode** — confirms from step 1. Drives whether you create `webview/` or not.
@@ -171,7 +171,7 @@ if (isWatch) {
 }
 ```
 
-Add permissions incrementally based on what the plugin actually does. If it uses a CLI, add `shell.execute`, `"shellCommands": ["your-tool"]`, and a `dependencies.system[]` entry with a check command and install hint.
+Add permissions incrementally based on what the plugin actually does. If it uses a WebView panel, add BOTH `"ui.webPanel"` AND `"webview"`. If it uses a CLI, add `shell.execute`, `"shellCommands": ["your-tool"]`, and a `dependencies.system[]` entry with a check command and install hint. If it uses the menubar, add `"menubar"` and remember to call `ctx.menubar.setContent()` to populate the popover (without it, clicking shows "No content").
 
 ## 9. Write src/main.ts
 

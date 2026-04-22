@@ -297,6 +297,16 @@ await ctx.workspaces.register({
 
 **Apply unconditionally on every activation** — NOT gated on a first-run cache flag. `activate()` only runs once per host launch, so calling `ctx.workspaces.apply('ytdlp-dual-pane')` at the end of activation is effectively once-per-launch. This is the only reliable way to guarantee the user sees your plugin's UI.
 
+> **GOTCHA — `apply()` silently returns `false` when no browser window is focused**
+>
+> `workspaces.apply()` returns `Promise<boolean>`. It returns `false` (not an error) if no browser window is frontmost — e.g. when the plugin activates from the Settings sheet via "Retry" or "Enable". Always add a `showPaneTab()` fallback:
+> ```ts
+> const applied = await ctx.workspaces.apply(WORKSPACE_ID).catch(() => false);
+> if (!applied) {
+>     try { ctx.ui.showPaneTab('my-panel', { title: 'My Panel', pane: 'left' }); } catch { /* ok */ }
+> }
+> ```
+
 > **LANDMINE — do not gate workspace apply behind `applyIfFirstRun` / `cache.get('initialized')`**
 >
 > Cache-flag gating (`if (await ctx.cache.get('initialized')) return;`) causes a silent "plugin installed but invisible" bug on every launch after the first. The workspace dropdown is easy to miss, the command palette requires knowing exact names, and the menubar NSStatusItem is a single small icon — none of those are reliable discovery paths. Always apply the workspace unconditionally; the user can still switch to a different workspace after activation and you won't override them until next launch. This is what `appos-plugin-ytdlp` does at Step 11 of `activate()`.
@@ -322,13 +332,25 @@ ctx.commands.register('open-download-panel', {
 await ctx.menubar.register({ icon: 'arrow.down.circle' });
 await ctx.menubar.setBadge(activeCount);  // 0 clears
 
+// REQUIRED: set popover content — without this, clicking the icon shows "No content"
+await ctx.menubar.setContent(vstack([
+    section('Downloads', { icon: 'arrow.down.circle', badge: String(activeCount) }, [
+        listItem('Active downloads', { icon: 'arrow.down', subtitle: `${activeCount} in progress` }),
+    ]),
+    button('Open Dashboard', { action: 'open-dashboard' }),
+]));
+
 const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
     await ctx.workspaces.apply('ytdlp-dual-pane');
 });
 // Cleanup: ctx.events.unsubscribe(clickToken)
 ```
 
-`ctx.menubar.register({ icon, label? })` — only `icon` and `label` are supported in `MenuBarRegisterOptions`. Drive `setBadge` from your state `subscribe()` so it stays reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
+`ctx.menubar.register({ icon, label? })` creates the NSStatusItem. **You MUST call `ctx.menubar.setContent(viewDescriptor)` to populate the popover** — without it, clicking the icon opens a popover that says "No content". Drive both `setBadge` and `setContent` from your state `subscribe()` so they stay reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
+
+> **GOTCHA — "No content" popover**
+>
+> The host always shows a popover when the menubar icon is clicked. If `setContent()` was never called, the popover displays "No content". This is easy to miss because `register()` + `setBadge()` + `menubar.clicked` all work fine without it — only the visual popover is empty. Always call `setContent()` after `register()` and update it reactively.
 
 ## Smart folder filters
 
@@ -423,7 +445,7 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 
 Permission scopes (see API comments in `plugin-api.d.ts` for per-namespace requirements). Only request what you use. Common ones:
 
-- `ui.webPanel` — register WebView panels (required for `registerWebPanel`)
+- `ui.webPanel` + `webview` — register WebView panels (BOTH required for `registerWebPanel`)
 - `ui.sidebar` — register sidebar panels (required for `registerPanel`)
 - `ui.contextMenu` — contribute to right-click menus
 - `ui.notifications` — legacy `ctx.ui.showNotification()` (NOT for `ctx.feedback`)
