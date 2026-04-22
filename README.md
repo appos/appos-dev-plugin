@@ -29,7 +29,7 @@ claude /plugin marketplace add appos/appos-dev-plugin
 ### Local development
 
 ```bash
-claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
+claude --plugin-dir /path/to/appos-dev-plugin/
 ```
 
 ## Commands
@@ -59,8 +59,8 @@ claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
 
 - [AppOS](https://appos.space) workspace manager for macOS
 - [Node.js](https://nodejs.org) 18+ with npm
-- The AppOS SDK checked out at `~/Documents/GitHub/AppOS/plugin-sdk/` (for `file:` dependencies during local development)
-- The canonical reference plugin `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` (for patterns and examples)
+- The AppOS SDK (for `file:` dependencies during local development)
+- The canonical reference plugin `appos-plugin-ytdlp` (for patterns and examples)
 
 ## Key constraints
 
@@ -72,7 +72,7 @@ claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
 - Max 2 WebView panels per plugin, 6 globally
 - WebView CSP blocks inline scripts/styles/handlers — everything external, ES modules only
 - `pipeShellToWebPanel` lives on `ctx.ui`, NOT `ctx.shell` (stale docs are wrong)
-- Install path: `~/Library/Application Support/com.twopanez/plugins/{plugin-id}/` (legacy bundle ID on disk; do not change — see `/appos-dev:deploy`)
+- Install path: `~/Library/Application Support/com.twopanez/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
 
 ## License
 
