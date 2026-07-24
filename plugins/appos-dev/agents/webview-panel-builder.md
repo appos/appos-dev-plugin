@@ -43,7 +43,7 @@ Before building anything, invoke these skills to load the current patterns:
 - `webview-panels` — The full WebView authoring skill: bridge pattern, CSP rules, message protocol, pipeShellToWebPanel, throttled broadcasts, multi-instance isolation
 - `appos-plugin-dev` — SDK structure, permissions, build/deploy, entry point pattern
 
-The canonical reference plugin is `~/Documents/GitHub/AppOS/appos-plugin-ytdlp`. When in doubt about any pattern, read:
+The canonical reference plugin is `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp — use a local clone if one exists, otherwise browse the repo; developer docs at https://docs.appos.space). When in doubt about any pattern, read:
 
 - `src/panels/download-panel.ts` — Message routing, throttled broadcasts, multi-instance correlation, error handling
 - `src/panels/library-panel.ts` — Simpler panel for comparison

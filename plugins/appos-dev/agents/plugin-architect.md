@@ -43,7 +43,7 @@ Before responding, invoke these skills to load the current API surface and patte
 
 Also use Glob to find `**/reference/extension-api.md` and `**/reference/patterns.md` in the appos-dev plugin directory if they exist — they contain deeper API details.
 
-The canonical flagship reference is `~/Documents/GitHub/AppOS/appos-plugin-ytdlp` — it uses every major SDK feature and should be read when the user asks "how does a real plugin do X".
+The canonical flagship reference is `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp) — it uses every major SDK feature and should be read when the user asks "how does a real plugin do X". Use a local clone if one exists; otherwise browse the repo. The broader developer docs live at https://docs.appos.space.
 
 ## Your responsibilities
 

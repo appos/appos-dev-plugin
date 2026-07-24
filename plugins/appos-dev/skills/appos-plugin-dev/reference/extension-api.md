@@ -1,6 +1,6 @@
 # AppOS Plugin API — Reference Overview
 
-This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/`.
+This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp). The canonical developer docs live at https://docs.appos.space.
 
 SDK version: **2.4.0-fn50**. Host version: check `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`).
 
@@ -451,4 +451,4 @@ Read `plugin-api.d.ts` in this directory — it's a consolidated snapshot (~2950
 - Shell types (`ShellExecuteOptions`, `ShellDataChunk`, `ShellExecuteResult`)
 - Workspace types (`WorkspaceTemplate`, `WorkspaceTemplateTabSlot`, `WorkspaceTemplatePaneConfig`)
 
-For patterns, read `patterns.md` in this directory or `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` directly.
+For patterns, read `patterns.md` in this directory or the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp) directly.
