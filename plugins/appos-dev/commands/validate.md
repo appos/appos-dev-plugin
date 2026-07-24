@@ -24,10 +24,33 @@ Read `plugin.json` and check:
   ```bash
   defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString
   ```
-- **Permissions**: must be from the valid set (see below)
+- **Permissions**: validated by the manifest schema (next step). Do NOT hand-check against a hardcoded list — the authoritative permission set lives in the SDK's `schemas/plugin-v1.json` and grows with each SDK release.
 
-Valid permissions (33 total, from `@appos.space/plugin-types`):
-`ui.sidebar`, `ui.statusBar`, `ui.contextMenu`, `ui.notifications`, `ui.sheets`, `ui.shortcuts`, `ui.themes`, `ui.preview`, `ui.webPanel`, `ui.quickActions`, `filesystem.read`, `filesystem.write`, `filesystem.watch`, `filesystem.readAll`, `filesystem.writeAll`, `shell.execute`, `clipboard.read`, `clipboard.write`, `network`, `network.outbound`, `network.unrestricted`, `cache`, `feedback`, `feedback.confirm`, `workspaces`, `menubar`, `smartFolders`, `webview`, `keychain.plugin`, `interPlugin.declare`, `interPlugin.contribute`, `interPlugin.query`, `interPlugin.emit`
+### Schema validation (authoritative)
+
+Validate the whole manifest against the SDK's published JSON Schema. This checks required fields, field shapes, and the full permissions enum in one step.
+
+**Preferred (no clone needed)** — fetch the schema from the public `appos/plugin-sdk` repo and validate with ajv:
+
+```bash
+curl -fsSL -o /tmp/appos-plugin-v1.schema.json \
+  https://raw.githubusercontent.com/appos/plugin-sdk/main/schemas/plugin-v1.json
+npx --yes -p ajv-cli -p ajv-formats ajv validate \
+  --spec=draft2020 -c ajv-formats \
+  -s /tmp/appos-plugin-v1.schema.json -d plugin.json
+```
+
+Exit 0 with `plugin.json valid` = pass. On failure, ajv prints the offending JSON paths — e.g., an unknown permission string fails the `permissions` items enum.
+
+**Alternative (plugin-sdk clone available)** — the SDK ships its own validator with friendlier output. From the clone root:
+
+```bash
+node scripts/validate-schema.mjs /path/to/plugin.json
+```
+
+Positional manifest paths are supported; with no args it runs the SDK's own fixture suite instead.
+
+If you're offline and have no clone, fall back to the structural checks above (required fields, ID format, minHostVersion landmine) and state in the report that the permission set could NOT be authoritatively verified.
 
 If the manifest declares `shell.execute`, verify `"shellCommands"` is present and non-empty. The AppOS sandbox blocks any command not in that list.
 
@@ -121,7 +144,7 @@ Plugin Validation: {plugin-name}
 Manifest:        ✓ Required fields present
                  ✓ Valid ID format (space.appos.filestats)
                  ✓ minHostVersion: 1.0.0 (safe)
-                 ✓ Valid permissions
+                 ✓ Schema validation passed (plugin-v1.json)
 
 SDK Layout:      ✓ build.mjs present
                  ✓ tsconfig verbatimModuleSyntax: true
