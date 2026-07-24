@@ -15,7 +15,8 @@ Create a new AppOS plugin targeting the SDK pattern (`@appos.space/plugin-types`
 If a plugin name was provided as an argument, use it. Otherwise ask for:
 - **Plugin name** (kebab-case, e.g. `file-stats`)
 - **One-sentence description**
-- **Flagship or community?** — flagships use `space.appos.*` IDs and live under `~/Documents/GitHub/AppOS/appos-plugin-{name}/`. Community plugins use `com.community.*` IDs and live under a community-plugins repo of the user's choice.
+- **Flagship or community?** — flagships (first-party, shipped with AppOS) use `space.appos.*` IDs; community plugins use `com.community.*` IDs.
+- **Target directory** — where to create the project (any location works; ask if not obvious from context).
 - **Rendering mode** — WebView panel (rich UI, streaming progress, media), ViewDescriptor sidebar (simple lists, native feel), or both. If unsure, ask the user what the primary UI looks like.
 
 Generate the plugin ID:
@@ -57,9 +58,7 @@ If WebView panels are needed, also create `$TARGET/webview/{panelId}/` and `$TAR
 
 ## 5. Write package.json
 
-**CRITICAL**: `@appos.space/plugin-types` is the declaration-only SDK. `@appos.space/plugin-utils` and `@appos.space/view-builders` are runtime packages.
-
-For local development against the SDK in the AppOS repo, use `file:` dependencies. Adjust the relative paths to reach `~/Documents/GitHub/AppOS/plugin-sdk/packages/*` from the target directory.
+**CRITICAL**: `@appos.space/plugin-types` is the declaration-only SDK. `@appos.space/plugin-utils` and `@appos.space/view-builders` are runtime packages. All three are published on npm — depend on them by version:
 
 ```json
 {
@@ -73,18 +72,25 @@ For local development against the SDK in the AppOS repo, use `file:` dependencie
         "typecheck": "tsc --noEmit"
     },
     "devDependencies": {
-        "@appos.space/plugin-types": "file:../plugin-sdk/packages/plugin-types",
+        "@appos.space/plugin-types": "^2.4.0",
         "esbuild": "^0.20.0",
         "typescript": "^5.4.0"
     },
     "dependencies": {
-        "@appos.space/plugin-utils": "file:../plugin-sdk/packages/plugin-utils",
-        "@appos.space/view-builders": "file:../plugin-sdk/packages/view-builders"
+        "@appos.space/plugin-utils": "^2.4.0",
+        "@appos.space/view-builders": "^2.4.0"
     }
 }
 ```
 
 If the plugin doesn't use ViewDescriptor panels at all, you can drop `@appos.space/view-builders` from `dependencies`. If it doesn't need runtime helpers, drop `@appos.space/plugin-utils` too. **`@appos.space/plugin-types` stays in `devDependencies` always** — it's type-only.
+
+<details>
+<summary>SDK contributors only: developing against a local plugin-sdk checkout</summary>
+
+If you are working on the SDK itself, point the three `@appos.space/*` entries at your clone with `file:` dependencies instead of npm versions — e.g. `"@appos.space/plugin-types": "file:../plugin-sdk/packages/plugin-types"` (adjust the relative path to reach your clone's `packages/*` from the plugin directory). Re-run `npm install` after switching. Do not scaffold `file:` paths for third-party plugin authors.
+
+</details>
 
 ## 6. Write tsconfig.json
 
