@@ -6,7 +6,7 @@ Project instructions for Claude Code when working inside this repo.
 
 A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS workspace manager plugins. Canonical references: the developer docs at https://docs.appos.space and the flagship plugin https://github.com/appos/appos-plugin-ytdlp — the plugin that exercises every supported SDK feature.
 
-This plugin is versioned at **2.0.0** because it was fully rewritten to target the SDK+WebView flagship pattern. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern.
+This plugin is versioned at **2.x** (current: see `.claude-plugin/marketplace.json`) because it was fully rewritten to target the SDK+WebView flagship pattern. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern.
 
 ## Repository layout
 

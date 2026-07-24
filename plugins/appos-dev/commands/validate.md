@@ -9,11 +9,11 @@ Run comprehensive validation on the plugin in the current directory.
 
 ## 1. Find plugin root
 
-Locate `plugin.json` in the current directory or parent directories.
+Locate `plugin.json` in the current directory or parent directories. The directory containing it is the **plugin root** — referred to as `$PLUGIN_ROOT` below. All later steps (manifest, layout, build, and audit checks) resolve paths against `$PLUGIN_ROOT`, not the current working directory, so validation works when invoked from `src/` or any other subdirectory.
 
 ## 2. Manifest validation
 
-Read `plugin.json` and check:
+Read `$PLUGIN_ROOT/plugin.json` and check:
 
 - **Required fields present**: `id`, `name`, `version`, `runtime`, `entrypoint`, `minHostVersion`
 - **ID format**: reverse-domain (`space.appos.*` for flagships, `com.community.*` for community)
@@ -37,15 +37,17 @@ curl -fsSL -o /tmp/appos-plugin-v1.schema.json \
   https://raw.githubusercontent.com/appos/plugin-sdk/main/schemas/plugin-v1.json
 npx --yes -p ajv-cli -p ajv-formats ajv validate \
   --spec=draft2020 -c ajv-formats \
-  -s /tmp/appos-plugin-v1.schema.json -d plugin.json
+  -s /tmp/appos-plugin-v1.schema.json -d "$PLUGIN_ROOT/plugin.json"
 ```
 
 Exit 0 with `plugin.json valid` = pass. On failure, ajv prints the offending JSON paths — e.g., an unknown permission string fails the `permissions` items enum.
 
+> **Why `main` and not a pinned SDK release tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown` — the superset the `main` schema mirrors), so `main` matches what the host actually accepts. The `v2.4.0` tag's schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, and `notifications.emit`. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch.) Note the separate compile-time bound: the SDK version you compile against (`^2.4.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK `main` ever moves ahead of your installed host, cross-check `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
+
 **Alternative (plugin-sdk clone available)** — the SDK ships its own validator with friendlier output. From the clone root:
 
 ```bash
-node scripts/validate-schema.mjs /path/to/plugin.json
+node scripts/validate-schema.mjs "$PLUGIN_ROOT/plugin.json"
 ```
 
 Positional manifest paths are supported; with no args it runs the SDK's own fixture suite instead.

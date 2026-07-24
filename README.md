@@ -26,7 +26,7 @@ In a Claude Code session:
 
 ```
 /plugin marketplace add appos/appos-dev-plugin
-/plugin install appos-dev
+/plugin install appos-dev@appos-dev
 ```
 
 ### Local development
