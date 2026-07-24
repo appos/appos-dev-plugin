@@ -4,7 +4,7 @@ Project instructions for Claude Code when working inside this repo.
 
 ## What this is
 
-A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS workspace manager plugins. Canonical references: the developer docs at https://docs.appos.space and the flagship plugin https://github.com/appos/appos-plugin-ytdlp — the plugin that exercises every supported SDK feature.
+A Claude Code plugin that gives Claude Code the skills, commands, and agents needed to create, build, test, and deploy AppOS workspace manager plugins. Canonical references: the developer docs at https://docs.appos.space (always reachable) and the flagship plugin https://github.com/appos/appos-plugin-ytdlp (public as of AppOS launch) — the plugin that exercises every supported SDK feature.
 
 This plugin is versioned at **2.x** (current: see `.claude-plugin/marketplace.json`) because it was fully rewritten to target the SDK+WebView flagship pattern. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern.
 
@@ -43,7 +43,7 @@ appos-dev-plugin/
 Before editing anything, be aware of these external sources of truth:
 
 - **Developer docs**: https://docs.appos.space — the canonical AppOS plugin developer documentation.
-- **Flagship reference plugin**: https://github.com/appos/appos-plugin-ytdlp — all patterns in the skills match this plugin's implementation. When in doubt, read its source files (clone it or browse on GitHub).
+- **Flagship reference plugin**: https://github.com/appos/appos-plugin-ytdlp — all patterns in the skills match this plugin's implementation. When in doubt, read its source files, in this order: (1) a local clone if one exists (preferred); (2) the GitHub repo — public as of AppOS launch; fetch raw files from `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>`; (3) https://docs.appos.space — always reachable; its getting-started/first-plugin pages carry the same canonical patterns.
 - **SDK source**: https://github.com/appos/plugin-sdk (`packages/plugin-types`) — the current declaration-only TypeScript types, also published on npm as `@appos.space/plugin-types`. Use for reference when validating API shapes in skills or commands.
 - **Host version**: read `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`). The host version is what `plugin.json` `minHostVersion` is compared against, NOT the SDK package version.
 
@@ -58,7 +58,7 @@ Before editing anything, be aware of these external sources of truth:
 
 ## When updating skills or commands
 
-1. Read the corresponding code in `appos-plugin-ytdlp` first — that's the ground truth.
+1. Read the corresponding code in `appos-plugin-ytdlp` first — that's the ground truth (local clone preferred; see Key references for the fallback order).
 2. If the SDK surface changed, check https://github.com/appos/plugin-sdk (`packages/plugin-types`) — or the published `@appos.space/plugin-types` npm package — for the current type definitions.
 3. Keep examples copyable — prefer full working snippets over fragments.
 4. When documenting a gotcha, include a `**Why**:` line with the root cause so future-you can judge edge cases.

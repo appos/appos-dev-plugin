@@ -44,13 +44,15 @@ Exit 0 with `plugin.json valid` = pass. On failure, ajv prints the offending JSO
 
 > **Why `main` and not a pinned SDK release tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown` — the superset the `main` schema mirrors), so `main` matches what the host actually accepts. The `v2.4.0` tag's schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, and `notifications.emit`. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch.) Note the separate compile-time bound: the SDK version you compile against (`^2.4.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK `main` ever moves ahead of your installed host, cross-check `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
 
-**Alternative (plugin-sdk clone available)** — the SDK ships its own validator with friendlier output. From the clone root:
+**Alternative (plugin-sdk clone available)** — validate offline against the clone's schema file with the same ajv invocation:
 
 ```bash
-node scripts/validate-schema.mjs "$PLUGIN_ROOT/plugin.json"
+npx --yes -p ajv-cli -p ajv-formats ajv validate \
+  --spec=draft2020 -c ajv-formats \
+  -s "$SDK_CLONE/schemas/plugin-v1.json" -d "$PLUGIN_ROOT/plugin.json"
 ```
 
-Positional manifest paths are supported; with no args it runs the SDK's own fixture suite instead.
+Do NOT pass your manifest path to the SDK's `scripts/validate-schema.mjs` — it takes no positional arguments (only `--plugins-dir` / `--ytdlp-dir`), so it would silently ignore your manifest, validate its own vendored fixtures, and exit 0: a false green.
 
 If you're offline and have no clone, fall back to the structural checks above (required fields, ID format, minHostVersion landmine) and state in the report that the permission set could NOT be authoritatively verified.
 

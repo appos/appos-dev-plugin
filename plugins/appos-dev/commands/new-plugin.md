@@ -44,7 +44,7 @@ These skills contain the canonical APIs, file layout, and gotchas. Do not procee
 From the one-sentence description, decide:
 - **Permissions** — start minimal. `ui.sidebar` for any panel, `ui.webPanel` + `webview` for WebView panels (BOTH required), `shell.execute` + `shellCommands: [...]` for CLI wrappers, `filesystem.read`/`filesystem.write` for file work, `cache` for persistence.
 - **System dependencies** — CLIs to probe on startup (with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`).
-- **Settings** — `string`, `enum`, or `boolean` keys shown in the plugin settings sheet.
+- **Settings** — `string`, `enum`, `bool`, or `number` keys shown in the plugin settings sheet. The manifest schema's settings type enum is `bool` — writing `boolean` fails `/appos-dev:validate` schema validation.
 - **Rendering mode** — confirms from step 1. Drives whether you create `webview/` or not.
 
 ## 4. Create the project directory

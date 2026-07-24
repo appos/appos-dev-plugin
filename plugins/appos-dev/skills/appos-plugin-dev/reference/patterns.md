@@ -1,6 +1,6 @@
 # Patterns — from appos-plugin-ytdlp
 
-Working patterns extracted from the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp). Every snippet here is shipped in a real plugin — when in doubt, open the source file referenced at the top of each section.
+Working patterns extracted from the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp). Every snippet here is shipped in a real plugin — when in doubt, open the source file referenced at the top of each section. Prefer a local clone; otherwise fetch raw files from `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>` (the repo is public as of AppOS launch), or fall back to https://docs.appos.space, which carries the same canonical patterns.
 
 ## 1. Entry point + disposables
 
@@ -888,6 +888,6 @@ function updateDependencyBanner(ctx: PluginContext, statuses: DependencyStatus[]
 
 - **`plugin-api.d.ts`** in this directory — consolidated type definitions
 - **`extension-api.md`** in this directory — namespace-by-namespace overview
-- **https://github.com/appos/appos-plugin-ytdlp** — every pattern above, live in production
+- **https://github.com/appos/appos-plugin-ytdlp** — every pattern above, live in production (public as of AppOS launch; prefer a local clone or raw-file fetch)
 - **https://github.com/appos/plugin-sdk** (`packages/`) — the SDK source (plugin-types, plugin-utils, view-builders)
 - **https://docs.appos.space** — the canonical AppOS plugin developer docs

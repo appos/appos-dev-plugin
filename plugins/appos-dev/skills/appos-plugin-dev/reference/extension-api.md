@@ -1,6 +1,6 @@
 # AppOS Plugin API — Reference Overview
 
-This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp). The canonical developer docs live at https://docs.appos.space.
+This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp — local clone preferred; the repo is public as of AppOS launch, with raw files at `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>`). The canonical developer docs live at https://docs.appos.space (always reachable).
 
 SDK version: **2.4.0-fn50**. Host version: check `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`).
 

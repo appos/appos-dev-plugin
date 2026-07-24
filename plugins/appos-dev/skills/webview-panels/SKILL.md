@@ -406,7 +406,7 @@ The host unregisters the panel on plugin unload — you don't need to call anyth
 
 ## Canonical reference
 
-Every pattern in this skill is implemented in `appos-plugin-ytdlp`. When in doubt, read:
+Every pattern in this skill is implemented in `appos-plugin-ytdlp`. Prefer a local clone; otherwise fetch raw files from `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>` (the repo is public as of AppOS launch), or fall back to https://docs.appos.space. When in doubt, read:
 
 - `src/panels/download-panel.ts` — message routing, throttled broadcasts, error handling, multi-instance correlation
 - `src/panels/library-panel.ts` — simpler panel for comparison
