@@ -64,7 +64,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
     ctx.ui.registerWebPanel('download', {
         title: 'Downloads',
         icon: 'arrow.down.circle',
-        htmlPath: 'panels/download/index.html',
+        htmlPath: 'webview/download/index.html',
         allowNavigation: false,
     });
 
@@ -378,7 +378,7 @@ const depToken = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 // the subscription auto-cleans on plugin deactivation.
 ```
 
-> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` but runtime support is deferred. Do NOT call these APIs yet. Use `onDependencyStatusChanged` to receive status updates pushed by the host at activation time.
+`ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are host-wired and safe to call — `appos-plugin-ytdlp` uses both in production (`src/main.ts` does the initial `getDependencyStatus()` read after subscribing; the panels call `recheckDependencies()` from their "Re-check" buttons). Subscribe FIRST, then read, so no update can slip between the read and the subscription.
 
 If a required dependency is missing, show a "degraded banner" in the webview with the install hint. Don't refuse to load the plugin — the host already handles hard failures.
 
@@ -542,7 +542,7 @@ defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionSt
 
 ## 17. WebView panel with plugin-to-webview messaging
 
-**Full plugin structure** showing `plugin.json` + `src/main.ts` + `panels/main/` with external JS/CSS (CSP-compliant).
+**Full plugin structure** showing `plugin.json` + `src/main.ts` + `webview/main/` with external JS/CSS (CSP-compliant).
 
 ### plugin.json
 
@@ -573,7 +573,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     ctx.ui.registerWebPanel('main-panel', {
         title: 'My Tools',
         icon: 'wrench',
-        htmlPath: 'panels/main/index.html',
+        htmlPath: 'webview/main/index.html',
         allowNavigation: false,
     });
 
@@ -645,7 +645,7 @@ async function deactivate(): Promise<void> {
 ;(globalThis as any).deactivate = deactivate;
 ```
 
-### panels/main/index.html
+### webview/main/index.html
 
 ```html
 <!DOCTYPE html>
@@ -662,7 +662,7 @@ async function deactivate(): Promise<void> {
 </html>
 ```
 
-### panels/main/styles.css
+### webview/main/styles.css
 
 ```css
 body {
@@ -695,7 +695,7 @@ button {
 }
 ```
 
-### panels/main/app.js
+### webview/main/app.js
 
 ```js
 const output = document.getElementById('output');
@@ -756,7 +756,7 @@ async function runWithPipe(ctx: PluginContext, url: string, outputDir: string): 
 }
 ```
 
-### panels/output/app.js
+### webview/output/app.js
 
 ```js
 const terminal = document.getElementById('terminal');
@@ -854,9 +854,11 @@ async function activate(ctx: PluginContext): Promise<void> {
         updateDependencyBanner(ctx, statuses);
     });
 
-    // Note: getDependencyStatus() and recheckDependencies() are defined in
-    // plugin-api.d.ts but runtime support is deferred — do NOT call them yet.
-    // The host pushes initial status via onDependencyStatusChanged at activation.
+    // Initial on-demand read AFTER subscribing (subscribe-first ordering).
+    // recheckDependencies() forces a re-probe — wire it to a "Re-check" button
+    // so users can recover after installing a missing CLI.
+    const initial = await ctx.lifecycle.getDependencyStatus();
+    updateDependencyBanner(ctx, initial);
 }
 
 function updateDependencyBanner(ctx: PluginContext, statuses: DependencyStatus[]): void {
@@ -879,8 +881,8 @@ function updateDependencyBanner(ctx: PluginContext, statuses: DependencyStatus[]
 - `check.command` MUST be in `shellCommands` allowlist — otherwise the status is `"command_not_allowed"`
 - `versionPattern` uses one capture group to extract the version string from stdout
 - `shellDeniedPatterns` are custom regexes merged with built-in defaults (never replacing them)
-- Subscribe to `onDependencyStatusChanged` BEFORE reading status — canonical ordering from `appos-plugin-ytdlp`
-- `getDependencyStatus()` and `recheckDependencies()` are types only, runtime deferred — do NOT call these APIs yet
+- Subscribe to `onDependencyStatusChanged` BEFORE the initial `getDependencyStatus()` read — canonical ordering from `appos-plugin-ytdlp`
+- `recheckDependencies()` re-probes on demand (both APIs are host-wired; ytdlp calls them in production)
 
 ## Further reading
 

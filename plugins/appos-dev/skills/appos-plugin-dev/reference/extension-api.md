@@ -215,9 +215,9 @@ The host probes system dependencies at activation time by running `check.command
 
 Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to install/uninstall at runtime.
 
-### Runtime query APIs — types only, runtime deferred
+### Runtime query APIs
 
-> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet — they will reject or return empty results. Use `ctx.lifecycle.onDependencyStatusChanged(handler)` (which IS wired) to receive status updates pushed by the host at activation time. The host probes dependencies automatically; plugins do not need to trigger checks manually.
+`ctx.lifecycle.getDependencyStatus()` (on-demand read) and `ctx.lifecycle.recheckDependencies()` (force a re-probe) are host-wired and safe to call — the flagship `appos-plugin-ytdlp` calls both in production. Typical usage: subscribe with `onDependencyStatusChanged(handler)` first, do an initial `getDependencyStatus()` read, and wire `recheckDependencies()` to a "Re-check" action so users can recover after installing a missing CLI.
 
 ## Workspaces
 
@@ -288,7 +288,7 @@ WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel:/
    ctx.ui.registerWebPanel('download', {
        title: 'Downloads',
        icon: 'arrow.down.circle',
-       htmlPath: 'panels/download/index.html',
+       htmlPath: 'webview/download/index.html',
        allowNavigation: false,
    });
    ```
