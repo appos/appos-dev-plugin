@@ -22,14 +22,19 @@ v2.0 is a full rewrite targeting the SDK+WebView flagship pattern used by `appos
 
 ### From marketplace
 
-```bash
-claude /plugin marketplace add appos/appos-dev-plugin
+In a Claude Code session:
+
+```
+/plugin marketplace add appos/appos-dev-plugin
+/plugin install appos-dev
 ```
 
 ### Local development
 
+The plugin lives at `plugins/appos-dev` inside this repo (marketplace layout):
+
 ```bash
-claude --plugin-dir /path/to/appos-dev-plugin/
+claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 ```
 
 ## Commands

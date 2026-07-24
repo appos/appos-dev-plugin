@@ -13,22 +13,27 @@ This plugin is versioned at **2.0.0** because it was fully rewritten to target t
 ```
 appos-dev-plugin/
 ├── .claude-plugin/
-│   ├── plugin.json          # Claude Code plugin manifest
-│   └── marketplace.json     # Single-plugin marketplace catalog
-├── commands/
-│   ├── new-plugin.md        # /appos-dev:new-plugin
-│   ├── build.md             # /appos-dev:build
-│   ├── deploy.md            # /appos-dev:deploy
-│   └── validate.md          # /appos-dev:validate
-├── agents/
-│   ├── plugin-architect.md          # Designs plugin architecture from requirements
-│   └── webview-panel-builder.md     # Builds WebView panels end-to-end
-├── skills/
-│   ├── appos-plugin-dev/
-│   │   ├── SKILL.md         # Main SDK+WebView skill
-│   │   └── reference/       # Full API spec, patterns, type definitions
-│   └── webview-panels/
-│       └── SKILL.md         # Focused WebView authoring skill
+│   └── marketplace.json     # Marketplace catalog — points at ./plugins/appos-dev
+├── plugins/
+│   └── appos-dev/           # The actual Claude Code plugin
+│       ├── commands/
+│       │   ├── new-plugin.md        # /appos-dev:new-plugin
+│       │   ├── build.md             # /appos-dev:build
+│       │   ├── deploy.md            # /appos-dev:deploy
+│       │   └── validate.md          # /appos-dev:validate
+│       ├── agents/
+│       │   ├── plugin-architect.md          # Designs plugin architecture from requirements
+│       │   ├── viewdescriptor-builder.md    # Builds ViewDescriptor UI trees
+│       │   └── webview-panel-builder.md     # Builds WebView panels end-to-end
+│       ├── skills/
+│       │   ├── appos-plugin-dev/
+│       │   │   ├── SKILL.md         # Main SDK+WebView skill
+│       │   │   └── reference/       # Full API spec, patterns, type definitions
+│       │   ├── viewdescriptor-authoring/
+│       │   │   └── SKILL.md         # ViewDescriptor authoring skill
+│       │   └── webview-panels/
+│       │       └── SKILL.md         # Focused WebView authoring skill
+│       └── compiled/        # Concatenated context artifacts for the AppOS host
 ├── README.md
 └── LICENSE
 ```
@@ -61,14 +66,16 @@ Before editing anything, be aware of these external sources of truth:
 
 Follow Claude Code plugin conventions:
 
-- Commands go in `commands/*.md` with frontmatter declaring `allowed-tools` and `argument-hint`
-- Agents go in `agents/*.md` with frontmatter declaring `name`, `description`, `whenToUse`, `tools`
-- Skills go in `skills/{name}/SKILL.md` with frontmatter declaring `description` (include the trigger phrases that should activate it)
+- Commands go in `plugins/appos-dev/commands/*.md` with frontmatter declaring `allowed-tools` and `argument-hint`
+- Agents go in `plugins/appos-dev/agents/*.md` with frontmatter declaring `name`, `description`, `whenToUse`, `tools`
+- Skills go in `plugins/appos-dev/skills/{name}/SKILL.md` with frontmatter declaring `description` (include the trigger phrases that should activate it)
 
 ## Testing locally
 
+From the repo root (the plugin lives at `plugins/appos-dev`, not the repo root):
+
 ```bash
-claude --plugin-dir ~/Documents/GitHub/appos-dev-plugin/
+claude --plugin-dir ./plugins/appos-dev
 ```
 
 Then verify:
