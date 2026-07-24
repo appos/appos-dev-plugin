@@ -72,7 +72,7 @@ claude --plugin-dir /path/to/appos-dev-plugin/
 - Max 2 WebView panels per plugin, 6 globally
 - WebView CSP blocks inline scripts/styles/handlers — everything external, ES modules only
 - `pipeShellToWebPanel` lives on `ctx.ui`, NOT `ctx.shell` (stale docs are wrong)
-- Install path: `~/Library/Application Support/com.twopanez/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
+- Install path: `~/Library/Application Support/AppOS/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
 
 ## License
 

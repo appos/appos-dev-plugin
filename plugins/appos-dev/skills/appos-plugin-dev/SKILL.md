@@ -509,7 +509,7 @@ if (isWatch) {
 
 ## Deploy
 
-Install to the user plugin directory. The on-disk bundle ID prefix is `com.twopanez` (legacy host identifier — do not rename), not `space.appos`:
+Install to the user plugin directory `~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`:
 
 ```bash
 rsync -av --delete --delete-excluded \
@@ -519,7 +519,7 @@ rsync -av --delete --delete-excluded \
   --exclude='package.json' --exclude='package-lock.json' \
   --exclude='CLAUDE.md' --exclude='AGENTS.md' --exclude='SPEC.md' \
   --exclude='types/' --exclude='dist/main.js.map' \
-  ./ "$HOME/Library/Application Support/com.twopanez/plugins/$PLUGIN_ID/"
+  ./ "$HOME/Library/Application Support/AppOS/plugins/$PLUGIN_ID/"
 ```
 
 **Critical flags:**
@@ -546,7 +546,7 @@ Then restart AppOS to pick up the new plugin (plugins are loaded at startup).
 - **`--ignore-config`** or equivalent on every wrapped CLI invocation — neutralize ambient user config that could inject dangerous flags.
 - **`minHostVersion` is the HOST version**, NOT the SDK version. Default to `"1.0.0"`.
 - **Host does not expose `unregisterFilterType`** — smart folder filters auto-clean on unload. Use a `disposed` flag guard.
-- **Install path**: `~/Library/Application Support/com.twopanez/plugins/$PLUGIN_ID/` (note `com.twopanez`, not `space.appos`).
+- **Install path**: `~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`.
 
 ## Reference files
 

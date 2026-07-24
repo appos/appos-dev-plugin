@@ -5,9 +5,7 @@ description: Deploy the current AppOS plugin to the local plugins directory
 
 # Deploy the current AppOS plugin
 
-Deploy the built plugin to `~/Library/Application Support/com.twopanez/plugins/`.
-
-**Destination path note**: The host app's on-disk bundle ID is `com.twopanez` (legacy identifier). Do not change this path; the installer has not been renamed.
+Deploy the built plugin to `~/Library/Application Support/AppOS/plugins/`.
 
 ## 1. Find and read plugin.json
 
@@ -28,7 +26,7 @@ If the plugin has a `webview/` directory, also verify at least one `webview/*/in
 
 ```bash
 PLUGIN_ID="{id-from-plugin.json}"
-INSTALL_DIR="$HOME/Library/Application Support/com.twopanez/plugins/$PLUGIN_ID"
+INSTALL_DIR="$HOME/Library/Application Support/AppOS/plugins/$PLUGIN_ID"
 mkdir -p "$INSTALL_DIR"
 
 rsync -av --delete --delete-excluded \
@@ -74,7 +72,7 @@ Report the deployment path and next steps:
 
 ```
 Deployed {plugin-name} ({plugin-id}) to:
-  ~/Library/Application Support/com.twopanez/plugins/{plugin-id}/
+  ~/Library/Application Support/AppOS/plugins/{plugin-id}/
 
 Files installed:
   - plugin.json
