@@ -257,12 +257,15 @@ ctx.ui.registerWebPanel('{panelId}', {
     allowNavigation: false,
 });
 
-disposables.push(ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
+let panelDisposed = false;
+ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
+    if (panelDisposed) return;
     // handle messages from webview
-}));
+});
+disposables.push(() => { panelDisposed = true; });
 ```
 
-`onWebPanelMessage` returns `void`, not a disposer — track a `disposed` flag inside your handler instead, or push a no-op cleanup. See the `webview-panels` skill → "Cleanup" section.
+`onWebPanelMessage` does NOT return a disposer — never push its return value into `disposables`. Use a `disposed` flag as above. See the `webview-panels` skill → "Cleanup" section.
 
 ## 11. Build
 

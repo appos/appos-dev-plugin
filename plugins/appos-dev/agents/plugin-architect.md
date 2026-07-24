@@ -104,7 +104,7 @@ The plugin can render UI in two ways, and you can mix them per panel:
 **ViewDescriptor panel** (`ctx.ui.registerPanel` with a JSON view tree rendered by SwiftUI)
 - Use when: static or low-frequency lists of items, simple forms, content that should feel indistinguishable from the host's own sidebar panels, when you need native `menuActions` context menus
 - Canonical reference: any of the 12 community plugins in `community-plugins/plugins/`
-- 13 view types: `vstack`, `hstack`, `scroll`, `list`, `text`, `label`, `image`, `badge`, `button`, `listItem`, `section`, `divider`, `spacer`
+- 17 view types: `vstack`, `hstack`, `scroll`, `list`, `grid`, `text`, `label`, `image`, `remoteImage`, `badge`, `button`, `listItem`, `textField`, `progress`, `section`, `divider`, `spacer`
 
 **Help the user pick**:
 - "Does the UI need to update faster than once per second?" → WebView
