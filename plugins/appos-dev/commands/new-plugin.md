@@ -150,7 +150,7 @@ if (isWatch) {
 
 ## 8. Write plugin.json
 
-**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.7.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
+**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.0.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
 
 ```json
 {

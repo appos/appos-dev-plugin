@@ -2,7 +2,7 @@
 
 This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/`.
 
-SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.7.0`).
+SDK version: **2.4.0-fn50**. Host version: check `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`).
 
 ## The PluginContext
 

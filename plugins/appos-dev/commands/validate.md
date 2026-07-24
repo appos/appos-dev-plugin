@@ -22,7 +22,7 @@ Read `plugin.json` and check:
 - **Version**: valid semver (MAJOR.MINOR.PATCH)
 - **minHostVersion**: **LANDMINE CHECK** — this must be the host app `CFBundleShortVersionString`, NOT the `@appos.space/plugin-types` SDK version. If it's set to `"2.0.0"`, `"2.1.0"`, `"2.2.0"`, `"2.3.0"`, `"2.4.0"`, or similar SDK-like values, flag it as an ERROR. Default safe value: `"1.0.0"`. Host version can be read via:
   ```bash
-  defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString
+  defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString
   ```
 - **Permissions**: must be from the valid set (see below)
 

@@ -435,10 +435,10 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 
 ### minHostVersion LANDMINE
 
-`minHostVersion` is compared against the host app's `CFBundleShortVersionString` (e.g., `1.7.0` for `/Applications/2Panez.app`), **NOT** the `@appos.space/plugin-types` SDK version (`2.4.x`). Conflating them causes silent plugin load failures — `DependencyResolver` emits `hostVersionTooLow` and the plugin never appears in the Settings sheet.
+`minHostVersion` is compared against the host app's `CFBundleShortVersionString` (e.g., `1.0.0` for `/Applications/AppOS.app`), **NOT** the `@appos.space/plugin-types` SDK version (`2.4.x`). Conflating them causes silent plugin load failures — `DependencyResolver` emits `hostVersionTooLow` and the plugin never appears in the Settings sheet.
 
 - Default to `"1.0.0"` unless you know you need a newer host.
-- Check the real host version with `defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString`.
+- Check the real host version with `defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString`.
 - If a plugin doesn't appear after install + restart, CHECK THIS FIRST.
 
 ### Permissions

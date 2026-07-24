@@ -532,12 +532,12 @@ rsync -av --delete --delete-excluded \
 }
 ```
 
-**ALWAYS** default `minHostVersion` to `"1.0.0"`. The host compares this against its `CFBundleShortVersionString` (currently `1.7.0`), NOT the SDK package version (`2.4.x`). Setting `minHostVersion` to `"2.4.0"` because you saw that number in `@appos.space/plugin-types/package.json` will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the Settings → Plugins sheet. No error dialog, no log entry you'll think to check.
+**ALWAYS** default `minHostVersion` to `"1.0.0"`. The host compares this against its `CFBundleShortVersionString` (currently `1.0.0`), NOT the SDK package version (`2.4.x`). Setting `minHostVersion` to `"2.4.0"` because you saw that number in `@appos.space/plugin-types/package.json` will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the Settings → Plugins sheet. No error dialog, no log entry you'll think to check.
 
 To verify the actual host version:
 
 ```bash
-defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString
+defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString
 ```
 
 ## 17. WebView panel with plugin-to-webview messaging

@@ -144,7 +144,7 @@ Recommend settings based on what should be user-configurable. Setting types: `st
 
 ### 7. minHostVersion
 
-**Always default to `"1.0.0"`.** Do NOT use the SDK version from `@appos.space/plugin-types` — that's a different number. The host compares `minHostVersion` against its `CFBundleShortVersionString` (currently `1.7.0`), and too-high values cause silent plugin rejection. See `appos-plugin-dev` skill → "minHostVersion landmine".
+**Always default to `"1.0.0"`.** Do NOT use the SDK version from `@appos.space/plugin-types` — that's a different number. The host compares `minHostVersion` against its `CFBundleShortVersionString` (currently `1.0.0`), and too-high values cause silent plugin rejection. See `appos-plugin-dev` skill → "minHostVersion landmine".
 
 ### 8. Output format
 

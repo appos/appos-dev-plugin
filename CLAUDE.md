@@ -39,12 +39,12 @@ Before editing anything, be aware of these external sources of truth:
 
 - **Flagship reference plugin**: `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` — all patterns in the skills match this plugin's implementation. When in doubt, read its source files.
 - **SDK source**: `~/Documents/GitHub/AppOS/plugin-sdk/packages/plugin-types/dist/` — the current declaration-only TypeScript types. Use for reference when validating API shapes in skills or commands.
-- **Host version**: read `/Applications/2Panez.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.7.0`). This is the host app's on-disk bundle (legacy name, do not rename); its version is what `plugin.json` `minHostVersion` is compared against, NOT the SDK package version.
+- **Host version**: read `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`). The host version is what `plugin.json` `minHostVersion` is compared against, NOT the SDK package version.
 
 ## Conventions
 
 - **Plugin IDs**: use `space.appos.*` for flagship plugins (the ones shipped with AppOS), `com.community.*` for community plugins, other reverse-domain for private/personal plugins.
-- **minHostVersion**: always default to `"1.0.0"`. The single biggest cause of "plugin installed but not appearing in Settings" is conflating the SDK version (`2.4.x`) with the host version (`1.7.x`). The `appos-plugin-dev` skill has a "minHostVersion landmine" section; keep it prominent.
+- **minHostVersion**: always default to `"1.0.0"`. The single biggest cause of "plugin installed but not appearing in Settings" is conflating the SDK version (`2.4.x`) with the host version (`1.0.x`). The `appos-plugin-dev` skill has a "minHostVersion landmine" section; keep it prominent.
 - **tsconfig**: always include `verbatimModuleSyntax: true`. Without it, TypeScript emits broken runtime imports from the declaration-only `@appos.space/plugin-types` package.
 - **Entry point**: always `globalThis.activate = activate` + `globalThis.deactivate = deactivate`, never ESM `export`. ESM exports disappear inside the IIFE closure and the host can't find them.
 - **Parameter naming**: always `ctx`, never `pluginContext`. Matches `appos-plugin-ytdlp` and every reference plugin.
