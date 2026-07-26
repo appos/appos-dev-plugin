@@ -9,11 +9,11 @@ Run comprehensive validation on the plugin in the current directory.
 
 ## 1. Find plugin root
 
-Locate `plugin.json` in the current directory or parent directories.
+Locate `plugin.json` in the current directory or parent directories. The directory containing it is the **plugin root** — referred to as `$PLUGIN_ROOT` below. All later steps (manifest, layout, build, and audit checks) resolve paths against `$PLUGIN_ROOT`, not the current working directory, so validation works when invoked from `src/` or any other subdirectory.
 
 ## 2. Manifest validation
 
-Read `plugin.json` and check:
+Read `$PLUGIN_ROOT/plugin.json` and check:
 
 - **Required fields present**: `id`, `name`, `version`, `runtime`, `entrypoint`, `minHostVersion`
 - **ID format**: reverse-domain (`space.appos.*` for flagships, `com.community.*` for community)
@@ -22,12 +22,37 @@ Read `plugin.json` and check:
 - **Version**: valid semver (MAJOR.MINOR.PATCH)
 - **minHostVersion**: **LANDMINE CHECK** — this must be the host app `CFBundleShortVersionString`, NOT the `@appos.space/plugin-types` SDK version. If it's set to `"2.0.0"`, `"2.1.0"`, `"2.2.0"`, `"2.3.0"`, `"2.4.0"`, or similar SDK-like values, flag it as an ERROR. Default safe value: `"1.0.0"`. Host version can be read via:
   ```bash
-  defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString
+  defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString
   ```
-- **Permissions**: must be from the valid set (see below)
+- **Permissions**: validated by the manifest schema (next step). Do NOT hand-check against a hardcoded list — the authoritative permission set lives in the SDK's `schemas/plugin-v1.json` and grows with each SDK release.
 
-Valid permissions (33 total, from `@appos.space/plugin-types`):
-`ui.sidebar`, `ui.statusBar`, `ui.contextMenu`, `ui.notifications`, `ui.sheets`, `ui.shortcuts`, `ui.themes`, `ui.preview`, `ui.webPanel`, `ui.quickActions`, `filesystem.read`, `filesystem.write`, `filesystem.watch`, `filesystem.readAll`, `filesystem.writeAll`, `shell.execute`, `clipboard.read`, `clipboard.write`, `network`, `network.outbound`, `network.unrestricted`, `cache`, `feedback`, `feedback.confirm`, `workspaces`, `menubar`, `smartFolders`, `webview`, `keychain.plugin`, `interPlugin.declare`, `interPlugin.contribute`, `interPlugin.query`, `interPlugin.emit`
+### Schema validation (authoritative)
+
+Validate the whole manifest against the SDK's published JSON Schema. This checks required fields, field shapes, and the full permissions enum in one step.
+
+**Preferred (no clone needed)** — fetch the schema from the public `appos/plugin-sdk` repo and validate with ajv:
+
+```bash
+curl -fsSL -o /tmp/appos-plugin-v1.schema.json \
+  https://raw.githubusercontent.com/appos/plugin-sdk/main/schemas/plugin-v1.json
+npx --yes -p ajv-cli -p ajv-formats ajv validate \
+  --spec=draft2020 -c ajv-formats \
+  -s /tmp/appos-plugin-v1.schema.json -d "$PLUGIN_ROOT/plugin.json"
+```
+
+Exit 0 with `plugin.json valid` = pass. On failure, ajv prints the offending JSON paths — e.g., an unknown permission string fails the `permissions` items enum.
+
+> **Why `main` and not a pinned SDK release tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown` — the superset the `main` schema mirrors), so `main` matches what the host actually accepts. The `v2.4.0` tag's schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, and `notifications.emit`. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch.) Note the separate compile-time bound: the SDK version you compile against (`^2.4.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK `main` ever moves ahead of your installed host, cross-check `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
+
+**Alternative (plugin-sdk clone available)** — validate offline with the clone's own validator, passing your manifest path as a positional argument:
+
+```bash
+node "$SDK_CLONE/scripts/validate-schema.mjs" "$PLUGIN_ROOT/plugin.json"
+```
+
+Exit 0 = pass; on failure it prints the offending JSON paths. This runs fully offline — both the schema and the validator live in the clone — with one precondition: the clone's dev dependencies (`ajv`, `ajv-formats`) must be installed. Run `npm install` in `$SDK_CLONE` once while online; if that never happened and you're offline now, use the structural fallback below instead. Do NOT substitute the `npx ajv` recipe here — `npx` resolves its packages from npm, so it is not offline-capable.
+
+If you're offline and have no clone, fall back to the structural checks above (required fields, ID format, minHostVersion landmine) and state in the report that the permission set could NOT be authoritatively verified.
 
 If the manifest declares `shell.execute`, verify `"shellCommands"` is present and non-empty. The AppOS sandbox blocks any command not in that list.
 
@@ -121,7 +146,7 @@ Plugin Validation: {plugin-name}
 Manifest:        ✓ Required fields present
                  ✓ Valid ID format (space.appos.filestats)
                  ✓ minHostVersion: 1.0.0 (safe)
-                 ✓ Valid permissions
+                 ✓ Schema validation passed (plugin-v1.json)
 
 SDK Layout:      ✓ build.mjs present
                  ✓ tsconfig verbatimModuleSyntax: true

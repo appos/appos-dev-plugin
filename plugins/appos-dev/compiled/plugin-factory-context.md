@@ -116,7 +116,7 @@ The leading `;` on the globalThis assignments prevents ASI hazards when the prec
 
 | Need | API | Rendering | Notes |
 |---|---|---|---|
-| Rich forms, streaming progress, media playback | `ctx.ui.registerWebPanel()` | WKWebView | Bundle HTML/CSS/JS under `panels/<panel>/`. Use for yt-dlp-style UIs. |
+| Rich forms, streaming progress, media playback | `ctx.ui.registerWebPanel()` | WKWebView | Bundle HTML/CSS/JS under `webview/<panel>/`. Use for yt-dlp-style UIs. |
 | Lightweight sidebar (file annotations, git status, file stats) | `ctx.ui.registerPanel()` | SwiftUI via ViewDescriptor | Cheap, reactive, composes well. |
 | Activity bar icon + sidebar | `ctx.ui.registerActivityView()` | SwiftUI via ViewDescriptor | Use for primary feature entry points. |
 | Menu bar status item (with badge) | `ctx.menubar.register()` / `setBadge()` | NSStatusItem | Subscribe to `menubar.clicked` event to handle clicks. |
@@ -126,7 +126,7 @@ The leading `;` on the globalThis assignments prevents ASI hazards when the prec
 | Keyboard shortcuts | `ctx.shortcuts.register({ commandId, keys })` | — | Must bind to an already-registered `ctx.commands.register()`. |
 | Persistent state (queue, library, history) | `ctx.cache.set(key, value, { persist: true })` | SQLite write-through | Default is memory-only — pass `persist: true` for durability. `cache.get()` returns deserialized values — do NOT `JSON.parse`. |
 | Run a CLI with streaming output | `ctx.ui.pipeShellToWebPanel(panelId, shellOpts)` | Chunks flow into the webview | **Method lives on `ctx.ui`, NOT `ctx.shell`.** Hard 120s timeout — use resume-loops for long jobs. |
-| React to dependency changes | `ctx.lifecycle.onDependencyStatusChanged(fn)` | — | Host pushes status at activation. `getDependencyStatus()` / `recheckDependencies()` are types-only — do NOT call. |
+| React to dependency changes | `ctx.lifecycle.onDependencyStatusChanged(fn)` | — | Host pushes status at activation. `getDependencyStatus()` reads on demand; `recheckDependencies()` re-probes (both host-wired). |
 
 ### Two WebView panels maximum per plugin
 
@@ -152,8 +152,8 @@ The SDK defines **17 ViewDescriptor types**: `vstack`, `hstack`, `scroll`, `list
 
 ```
 my-plugin/
-  src/main.ts           # registerWebPanel('main-panel', { htmlPath: 'panels/main/index.html' })
-  panels/
+  src/main.ts           # registerWebPanel('main-panel', { htmlPath: 'webview/main/index.html' })
+  webview/
     main/
       index.html        # Entry point (NO inline <script> or <style> — CSP blocks them)
       app.js            # External JS loaded via <script type="module" src="app.js">
@@ -174,7 +174,7 @@ Register the panel in `activate()`, passing the bundle-relative path to the HTML
 ctx.ui.registerWebPanel('download', {
     title: 'Downloads',
     icon: 'arrow.down.circle',
-    htmlPath: 'panels/download/index.html',
+    htmlPath: 'webview/download/index.html',
     allowNavigation: false,
 });
 
@@ -184,7 +184,7 @@ ctx.ui.onWebPanelMessage('download', (envelope) => {
 });
 ```
 
-The `htmlPath` resolves **relative to the plugin root at runtime**, so the `panels/` tree MUST ship with the installed plugin (do not exclude it from rsync). All JS/CSS must be external files — CSP blocks inline `<script>` and `<style>`.
+The `htmlPath` resolves **relative to the plugin root at runtime**, so the `webview/` tree MUST ship with the installed plugin (do not exclude it from rsync). All JS/CSS must be external files — CSP blocks inline `<script>` and `<style>`.
 
 ### Webview-side bridge
 
@@ -199,7 +199,7 @@ window.twopanez.windowId         // app window ID
 window.twopanez.paneId           // "left" | "right"
 ```
 
-Wrap this in a thin `bridge.js` module per plugin (see `appos-plugin-ytdlp/panels/shared/bridge.js` for the canonical pattern, including how to split "protocol messages" from "shell chunks" into separate listener buckets).
+Wrap this in a thin `bridge.js` module per plugin (see `appos-plugin-ytdlp/webview/shared/bridge.js` for the canonical pattern, including how to split "protocol messages" from "shell chunks" into separate listener buckets).
 
 ### pipeShellToWebPanel (direct CLI → WebView streaming)
 
@@ -387,7 +387,7 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 });
 ```
 
-> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet. Use `onDependencyStatusChanged` (which IS wired) to receive status updates pushed by the host. See `appos-plugin-ytdlp/src/main.ts` step 9 for the canonical pattern.
+`ctx.lifecycle.getDependencyStatus()` (on-demand read) and `ctx.lifecycle.recheckDependencies()` (force a re-probe, e.g. after the user installs a missing CLI) are host-wired and safe to call — `appos-plugin-ytdlp` calls both in production. Canonical ordering (see `appos-plugin-ytdlp/src/main.ts` step 9): subscribe with `onDependencyStatusChanged` FIRST, then do the initial `getDependencyStatus()` read, so you can never miss an update between the read and the subscription.
 
 ## plugin.json manifest
 
@@ -437,10 +437,10 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 
 ### minHostVersion LANDMINE
 
-`minHostVersion` is compared against the host app's `CFBundleShortVersionString` (e.g., `1.7.0` for `/Applications/2Panez.app`), **NOT** the `@appos.space/plugin-types` SDK version (`2.4.x`). Conflating them causes silent plugin load failures — `DependencyResolver` emits `hostVersionTooLow` and the plugin never appears in the Settings sheet.
+`minHostVersion` is compared against the host app's `CFBundleShortVersionString` (e.g., `1.0.0` for `/Applications/AppOS.app`), **NOT** the `@appos.space/plugin-types` SDK version (`2.4.x`). Conflating them causes silent plugin load failures — `DependencyResolver` emits `hostVersionTooLow` and the plugin never appears in the Settings sheet.
 
 - Default to `"1.0.0"` unless you know you need a newer host.
-- Check the real host version with `defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString`.
+- Check the real host version with `defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString`.
 - If a plugin doesn't appear after install + restart, CHECK THIS FIRST.
 
 ### Permissions
@@ -511,7 +511,7 @@ if (isWatch) {
 
 ## Deploy
 
-Install to the user plugin directory. The on-disk bundle ID prefix is `com.twopanez` (legacy host identifier — do not rename), not `space.appos`:
+Install to the user plugin directory `~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`:
 
 ```bash
 rsync -av --delete --delete-excluded \
@@ -521,13 +521,13 @@ rsync -av --delete --delete-excluded \
   --exclude='package.json' --exclude='package-lock.json' \
   --exclude='CLAUDE.md' --exclude='AGENTS.md' --exclude='SPEC.md' \
   --exclude='types/' --exclude='dist/main.js.map' \
-  ./ "$HOME/Library/Application Support/com.twopanez/plugins/$PLUGIN_ID/"
+  ./ "$HOME/Library/Application Support/AppOS/plugins/$PLUGIN_ID/"
 ```
 
 **Critical flags:**
 - `--delete` removes files on dest that are absent on source.
 - `--delete-excluded` removes files matching `--exclude` patterns on dest. **Without it**, files you added to `--exclude` stay on dest forever if they were copied on a previous deploy — this bit us during the ytdlp ship.
-- Ship `dist/main.js`, `plugin.json`, `panels/`, `assets/`, `README.md`, `LICENSE`, `CHANGELOG.md`. Exclude `src/`, tests, build config, dev docs, `.flow/`, `.git/`.
+- Ship `dist/main.js`, `plugin.json`, `webview/`, `assets/`, `README.md`, `LICENSE`, `CHANGELOG.md`. Exclude `src/`, tests, build config, dev docs, `.flow/`, `.git/`.
 
 Then restart AppOS to pick up the new plugin (plugins are loaded at startup).
 
@@ -548,7 +548,7 @@ Then restart AppOS to pick up the new plugin (plugins are loaded at startup).
 - **`--ignore-config`** or equivalent on every wrapped CLI invocation — neutralize ambient user config that could inject dangerous flags.
 - **`minHostVersion` is the HOST version**, NOT the SDK version. Default to `"1.0.0"`.
 - **Host does not expose `unregisterFilterType`** — smart folder filters auto-clean on unload. Use a `disposed` flag guard.
-- **Install path**: `~/Library/Application Support/com.twopanez/plugins/$PLUGIN_ID/` (note `com.twopanez`, not `space.appos`).
+- **Install path**: `~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`.
 
 ## Reference files
 
@@ -565,9 +565,9 @@ When starting a new plugin, always read `patterns.md` and spot-check `plugin-api
 
 # AppOS Plugin API — Reference Overview
 
-This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/`.
+This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp — local clone preferred; the repo is public as of AppOS launch, with raw files at `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>`). The canonical developer docs live at https://docs.appos.space (always reachable).
 
-SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.7.0`).
+SDK version: **2.4.0-fn50**. Host version: check `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`).
 
 ## The PluginContext
 
@@ -780,9 +780,9 @@ The host probes system dependencies at activation time by running `check.command
 
 Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to install/uninstall at runtime.
 
-### Runtime query APIs — types only, runtime deferred
+### Runtime query APIs
 
-> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet — they will reject or return empty results. Use `ctx.lifecycle.onDependencyStatusChanged(handler)` (which IS wired) to receive status updates pushed by the host at activation time. The host probes dependencies automatically; plugins do not need to trigger checks manually.
+`ctx.lifecycle.getDependencyStatus()` (on-demand read) and `ctx.lifecycle.recheckDependencies()` (force a re-probe) are host-wired and safe to call — the flagship `appos-plugin-ytdlp` calls both in production. Typical usage: subscribe with `onDependencyStatusChanged(handler)` first, do an initial `getDependencyStatus()` read, and wire `recheckDependencies()` to a "Re-check" action so users can recover after installing a missing CLI.
 
 ## Workspaces
 
@@ -853,7 +853,7 @@ WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel:/
    ctx.ui.registerWebPanel('download', {
        title: 'Downloads',
        icon: 'arrow.down.circle',
-       htmlPath: 'panels/download/index.html',
+       htmlPath: 'webview/download/index.html',
        allowNavigation: false,
    });
    ```
@@ -1016,7 +1016,7 @@ Read `plugin-api.d.ts` in this directory — it's a consolidated snapshot (~2950
 - Shell types (`ShellExecuteOptions`, `ShellDataChunk`, `ShellExecuteResult`)
 - Workspace types (`WorkspaceTemplate`, `WorkspaceTemplateTabSlot`, `WorkspaceTemplatePaneConfig`)
 
-For patterns, read `patterns.md` in this directory or `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` directly.
+For patterns, read `patterns.md` in this directory or the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp) directly.
 
 ---
 
@@ -1024,7 +1024,7 @@ For patterns, read `patterns.md` in this directory or `~/Documents/GitHub/AppOS/
 
 # Patterns — from appos-plugin-ytdlp
 
-Working patterns extracted from the flagship `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/`. Every snippet here is shipped in a real plugin — when in doubt, open the source file referenced at the top of each section.
+Working patterns extracted from the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp). Every snippet here is shipped in a real plugin — when in doubt, open the source file referenced at the top of each section. Prefer a local clone; otherwise fetch raw files from `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>` (the repo is public as of AppOS launch), or fall back to https://docs.appos.space, which carries the same canonical patterns.
 
 ## 1. Entry point + disposables
 
@@ -1088,7 +1088,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
     ctx.ui.registerWebPanel('download', {
         title: 'Downloads',
         icon: 'arrow.down.circle',
-        htmlPath: 'panels/download/index.html',
+        htmlPath: 'webview/download/index.html',
         allowNavigation: false,
     });
 
@@ -1394,7 +1394,7 @@ const depToken = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
 // the subscription auto-cleans on plugin deactivation.
 ```
 
-> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` but runtime support is deferred. Do NOT call these APIs yet. Use `onDependencyStatusChanged` to receive status updates pushed by the host at activation time.
+`ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are host-wired and safe to call — `appos-plugin-ytdlp` uses both in production (`src/main.ts` does the initial `getDependencyStatus()` read after subscribing; the panels call `recheckDependencies()` from their "Re-check" buttons). Subscribe FIRST, then read, so no update can slip between the read and the subscription.
 
 If a required dependency is missing, show a "degraded banner" in the webview with the install hint. Don't refuse to load the plugin — the host already handles hard failures.
 
@@ -1548,17 +1548,17 @@ rsync -av --delete --delete-excluded \
 }
 ```
 
-**ALWAYS** default `minHostVersion` to `"1.0.0"`. The host compares this against its `CFBundleShortVersionString` (currently `1.7.0`), NOT the SDK package version (`2.4.x`). Setting `minHostVersion` to `"2.4.0"` because you saw that number in `@appos.space/plugin-types/package.json` will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the Settings → Plugins sheet. No error dialog, no log entry you'll think to check.
+**ALWAYS** default `minHostVersion` to `"1.0.0"`. The host compares this against its `CFBundleShortVersionString` (currently `1.0.0`), NOT the SDK package version (`2.4.x`). Setting `minHostVersion` to `"2.4.0"` because you saw that number in `@appos.space/plugin-types/package.json` will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the Settings → Plugins sheet. No error dialog, no log entry you'll think to check.
 
 To verify the actual host version:
 
 ```bash
-defaults read /Applications/2Panez.app/Contents/Info.plist CFBundleShortVersionString
+defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString
 ```
 
 ## 17. WebView panel with plugin-to-webview messaging
 
-**Full plugin structure** showing `plugin.json` + `src/main.ts` + `panels/main/` with external JS/CSS (CSP-compliant).
+**Full plugin structure** showing `plugin.json` + `src/main.ts` + `webview/main/` with external JS/CSS (CSP-compliant).
 
 ### plugin.json
 
@@ -1589,7 +1589,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     ctx.ui.registerWebPanel('main-panel', {
         title: 'My Tools',
         icon: 'wrench',
-        htmlPath: 'panels/main/index.html',
+        htmlPath: 'webview/main/index.html',
         allowNavigation: false,
     });
 
@@ -1661,7 +1661,7 @@ async function deactivate(): Promise<void> {
 ;(globalThis as any).deactivate = deactivate;
 ```
 
-### panels/main/index.html
+### webview/main/index.html
 
 ```html
 <!DOCTYPE html>
@@ -1678,7 +1678,7 @@ async function deactivate(): Promise<void> {
 </html>
 ```
 
-### panels/main/styles.css
+### webview/main/styles.css
 
 ```css
 body {
@@ -1711,7 +1711,7 @@ button {
 }
 ```
 
-### panels/main/app.js
+### webview/main/app.js
 
 ```js
 const output = document.getElementById('output');
@@ -1772,7 +1772,7 @@ async function runWithPipe(ctx: PluginContext, url: string, outputDir: string): 
 }
 ```
 
-### panels/output/app.js
+### webview/output/app.js
 
 ```js
 const terminal = document.getElementById('terminal');
@@ -1870,9 +1870,11 @@ async function activate(ctx: PluginContext): Promise<void> {
         updateDependencyBanner(ctx, statuses);
     });
 
-    // Note: getDependencyStatus() and recheckDependencies() are defined in
-    // plugin-api.d.ts but runtime support is deferred — do NOT call them yet.
-    // The host pushes initial status via onDependencyStatusChanged at activation.
+    // Initial on-demand read AFTER subscribing (subscribe-first ordering).
+    // recheckDependencies() forces a re-probe — wire it to a "Re-check" button
+    // so users can recover after installing a missing CLI.
+    const initial = await ctx.lifecycle.getDependencyStatus();
+    updateDependencyBanner(ctx, initial);
 }
 
 function updateDependencyBanner(ctx: PluginContext, statuses: DependencyStatus[]): void {
@@ -1895,15 +1897,16 @@ function updateDependencyBanner(ctx: PluginContext, statuses: DependencyStatus[]
 - `check.command` MUST be in `shellCommands` allowlist — otherwise the status is `"command_not_allowed"`
 - `versionPattern` uses one capture group to extract the version string from stdout
 - `shellDeniedPatterns` are custom regexes merged with built-in defaults (never replacing them)
-- Subscribe to `onDependencyStatusChanged` BEFORE reading status — canonical ordering from `appos-plugin-ytdlp`
-- `getDependencyStatus()` and `recheckDependencies()` are types only, runtime deferred — do NOT call these APIs yet
+- Subscribe to `onDependencyStatusChanged` BEFORE the initial `getDependencyStatus()` read — canonical ordering from `appos-plugin-ytdlp`
+- `recheckDependencies()` re-probes on demand (both APIs are host-wired; ytdlp calls them in production)
 
 ## Further reading
 
 - **`plugin-api.d.ts`** in this directory — consolidated type definitions
 - **`extension-api.md`** in this directory — namespace-by-namespace overview
-- **`~/Documents/GitHub/AppOS/appos-plugin-ytdlp/`** — every pattern above, live in production
-- **`~/Documents/GitHub/AppOS/plugin-sdk/packages/`** — the SDK source (plugin-types, plugin-utils, view-builders)
+- **https://github.com/appos/appos-plugin-ytdlp** — every pattern above, live in production (public as of AppOS launch; prefer a local clone or raw-file fetch)
+- **https://github.com/appos/plugin-sdk** (`packages/`) — the SDK source (plugin-types, plugin-utils, view-builders)
+- **https://docs.appos.space** — the canonical AppOS plugin developer docs
 
 ---
 

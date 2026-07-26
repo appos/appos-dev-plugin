@@ -2,7 +2,7 @@
 name: viewdescriptor-builder
 description: >
   Builds ViewDescriptor JSON trees for AppOS plugin UI. Use when creating sidebar panels,
-  activity views, or any plugin UI that needs ViewDescriptor trees. Specializes in all 13
+  activity views, or any plugin UI that needs ViewDescriptor trees. Specializes in all 17
   types, column alignment, menuActions, section/badge patterns, button hover states, and
   empty/loading states. Triggers on: "build a ViewDescriptor", "create sidebar UI",
   "design the panel view", "listItem with columns", "menuActions menu", "section with badge".
@@ -37,15 +37,15 @@ You are a ViewDescriptor specialist for AppOS plugins. You build native SwiftUI 
 ## Your knowledge
 
 Use Glob to find `**/viewdescriptor-authoring/SKILL.md` and `**/reference/patterns.md` in the appos-dev plugin directory, then read them before building:
-- `SKILL.md` — All 13 ViewDescriptor types, properties, patterns
+- `SKILL.md` — All 17 ViewDescriptor types, properties, patterns
 - `patterns.md` — Working examples from 7 plugins
 
-## The 13 ViewDescriptor types
+## The 17 ViewDescriptor types
 
-Layout: `vstack`, `hstack`, `scroll`, `list`
-Content: `text`, `label`, `image`, `badge`
-Interactive: `button`, `listItem`, `section`
-Structural: `divider`, `spacer`
+Layout: `vstack`, `hstack`, `scroll`, `list`, `grid`
+Content: `text`, `label`, `image`, `remoteImage`, `badge`
+Interactive: `button`, `listItem`, `textField`, `progress`
+Structural: `section`, `divider`, `spacer`
 
 ## Your responsibilities
 
@@ -104,5 +104,5 @@ Always produce complete, runnable TypeScript code that can be pasted directly in
 - Badges are **strings** — always `"" + count`
 - Wrap outer content in `{ type: "scroll", children: [{ type: "vstack", children }] }`
 - Set `id` on sections for persistent collapse state
-- There are exactly 13 ViewDescriptor types — no others exist
+- There are exactly 17 ViewDescriptor types — no others exist
 - No HTML, WebView, or DOM — everything is native SwiftUI

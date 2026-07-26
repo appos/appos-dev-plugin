@@ -1,8 +1,8 @@
 # AppOS Plugin API — Reference Overview
 
-This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/`.
+This is a high-level map of the `@appos.space/plugin-types` SDK surface. For exact type signatures, read `plugin-api.d.ts` in this directory (a consolidated snapshot of the live SDK declaration files). For working examples of every API, read the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp — local clone preferred; the repo is public as of AppOS launch, with raw files at `https://raw.githubusercontent.com/appos/appos-plugin-ytdlp/main/<path>`). The canonical developer docs live at https://docs.appos.space (always reachable).
 
-SDK version: **2.4.0-fn50**. Host version: check `/Applications/2Panez.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.7.0`).
+SDK version: **2.4.0-fn50**. Host version: check `/Applications/AppOS.app/Contents/Info.plist` → `CFBundleShortVersionString` (currently `1.0.0`).
 
 ## The PluginContext
 
@@ -215,9 +215,9 @@ The host probes system dependencies at activation time by running `check.command
 
 Subscribe with `ctx.lifecycle.onDependencyStatusChanged(handler)` to react to install/uninstall at runtime.
 
-### Runtime query APIs — types only, runtime deferred
+### Runtime query APIs
 
-> **WARNING**: `ctx.lifecycle.getDependencyStatus()` and `ctx.lifecycle.recheckDependencies()` are defined in `plugin-api.d.ts` and compile without error, but **runtime support is deferred**. Do NOT call these APIs in plugin code yet — they will reject or return empty results. Use `ctx.lifecycle.onDependencyStatusChanged(handler)` (which IS wired) to receive status updates pushed by the host at activation time. The host probes dependencies automatically; plugins do not need to trigger checks manually.
+`ctx.lifecycle.getDependencyStatus()` (on-demand read) and `ctx.lifecycle.recheckDependencies()` (force a re-probe) are host-wired and safe to call — the flagship `appos-plugin-ytdlp` calls both in production. Typical usage: subscribe with `onDependencyStatusChanged(handler)` first, do an initial `getDependencyStatus()` read, and wire `recheckDependencies()` to a "Re-check" action so users can recover after installing a missing CLI.
 
 ## Workspaces
 
@@ -288,7 +288,7 @@ WebView panels render HTML/CSS/JS inside a WKWebView, loaded via `plugin-panel:/
    ctx.ui.registerWebPanel('download', {
        title: 'Downloads',
        icon: 'arrow.down.circle',
-       htmlPath: 'panels/download/index.html',
+       htmlPath: 'webview/download/index.html',
        allowNavigation: false,
    });
    ```
@@ -451,4 +451,4 @@ Read `plugin-api.d.ts` in this directory — it's a consolidated snapshot (~2950
 - Shell types (`ShellExecuteOptions`, `ShellDataChunk`, `ShellExecuteResult`)
 - Workspace types (`WorkspaceTemplate`, `WorkspaceTemplateTabSlot`, `WorkspaceTemplatePaneConfig`)
 
-For patterns, read `patterns.md` in this directory or `~/Documents/GitHub/AppOS/appos-plugin-ytdlp/` directly.
+For patterns, read `patterns.md` in this directory or the flagship `appos-plugin-ytdlp` (https://github.com/appos/appos-plugin-ytdlp) directly.

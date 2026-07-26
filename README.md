@@ -22,14 +22,19 @@ v2.0 is a full rewrite targeting the SDK+WebView flagship pattern used by `appos
 
 ### From marketplace
 
-```bash
-claude /plugin marketplace add appos/appos-dev-plugin
+In a Claude Code session:
+
+```
+/plugin marketplace add appos/appos-dev-plugin
+/plugin install appos-dev@appos-dev
 ```
 
 ### Local development
 
+The plugin lives at `plugins/appos-dev` inside this repo (marketplace layout):
+
 ```bash
-claude --plugin-dir /path/to/appos-dev-plugin/
+claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 ```
 
 ## Commands
@@ -72,7 +77,7 @@ claude --plugin-dir /path/to/appos-dev-plugin/
 - Max 2 WebView panels per plugin, 6 globally
 - WebView CSP blocks inline scripts/styles/handlers — everything external, ES modules only
 - `pipeShellToWebPanel` lives on `ctx.ui`, NOT `ctx.shell` (stale docs are wrong)
-- Install path: `~/Library/Application Support/com.twopanez/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
+- Install path: `~/Library/Application Support/AppOS/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
 
 ## License
 
