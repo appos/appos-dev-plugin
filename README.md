@@ -79,6 +79,20 @@ claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 - `pipeShellToWebPanel` lives on `ctx.ui`, NOT `ctx.shell` (stale docs are wrong)
 - Install path: `~/Library/Application Support/AppOS/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
 
+## Knowledge verification (CI)
+
+Every teaching surface in this repo is gated against the PUBLISHED `@appos.space/plugin-types` package (`.github/workflows/verify.yml` runs both checks on PR via `npm ci`):
+
+```bash
+npm ci                              # install the exact-pinned toolchain
+scripts/check-sdk-freshness.sh      # bundled d.ts mirror byte-equal to the npm tarball
+node scripts/verify-knowledge.mjs   # fence type-check + stale-identifier denylist + count consistency
+```
+
+The bundled type reference is `plugins/appos-dev/skills/appos-plugin-dev/reference/plugin-api/` — a byte-verbatim mirror of the published tarball's `dist/*.d.ts` files. Its `INDEX.md` records the `dist.integrity` pin, per-file sha256 hashes, and the regeneration command (`scripts/check-sdk-freshness.sh --update`).
+
+> Maintainer note (2026-07): the canonical local clone of this repo is `~/Documents/GitHub/AppOS/appos-dev-plugin`. The historical duplicate clone at `~/Documents/GitHub/appos-dev-plugin` is retired — tombstoned with a `RETIRED.md` pointing here — so edits land in exactly one working copy.
+
 ## License
 
 MIT
