@@ -12,6 +12,13 @@
 # plugin-sdk working tree nor the host's plugin-api.d.ts is ever consulted.
 #
 # Check mode (default) fails NON-ZERO when ANY of these drift:
+#   0. pin/toolchain coherence: package.json's devDependency on the package is
+#      not EXACTLY the pinned version, or the package-lock.json entry carries a
+#      different version/integrity. verify-knowledge.mjs type-checks against
+#      the `npm ci`-installed package (lockfile truth); this gate guarantees
+#      that is the SAME artifact this script verifies the mirror against — a
+#      devDependency/lockfile bump without `--update` FAILS here instead of
+#      silently green-lighting the old mirror
 #   1. registry `dist.integrity` for the pinned version != committed pin
 #   2. sha512 of the actually-downloaded tarball bytes != committed pin
 #   3. any mirrored *.d.ts differs byte-for-byte from the tarball's dist/ copy
@@ -87,6 +94,33 @@ else
   if [[ -z "$VERSION" || -z "$PINNED_INTEGRITY" || "$PINNED_PKG" != "$PKG" ]]; then
     echo "[check-sdk-freshness] ERROR malformed pin file $PIN_FILE (need package=/version=/integrity= lines; package must be $PKG)" >&2
     exit 2
+  fi
+
+  # Gate 0: pin ⇄ npm-toolchain coherence. The devDependency must be the EXACT
+  # pinned version (no ranges) and the lockfile entry must carry the same
+  # version + integrity, so verify-knowledge.mjs (which type-checks against the
+  # `npm ci`-installed package) and this script verify the SAME artifact.
+  DEVDEP_VERSION="$(node -p "require('./package.json').devDependencies?.['$PKG'] ?? ''")" || exit 2
+  LOCK_VERSION="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.version ?? ''")" || exit 2
+  LOCK_INTEGRITY="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.integrity ?? ''")" || exit 2
+  PIN_RC=0
+  if [[ "$DEVDEP_VERSION" != "$VERSION" ]]; then
+    echo "[check-sdk-freshness] FAIL package.json devDependency '$PKG' is '$DEVDEP_VERSION' but $PIN_FILE pins '$VERSION' (must match EXACTLY — no ranges)" >&2
+    PIN_RC=1
+  fi
+  if [[ "$LOCK_VERSION" != "$VERSION" ]]; then
+    echo "[check-sdk-freshness] FAIL package-lock.json resolves $PKG@'$LOCK_VERSION' but $PIN_FILE pins '$VERSION'" >&2
+    PIN_RC=1
+  fi
+  if [[ "$LOCK_INTEGRITY" != "$PINNED_INTEGRITY" ]]; then
+    echo "[check-sdk-freshness] FAIL package-lock.json integrity for $PKG != pinned integrity" >&2
+    echo "  pinned   = $PINNED_INTEGRITY" >&2
+    echo "  lockfile = $LOCK_INTEGRITY" >&2
+    PIN_RC=1
+  fi
+  if [[ "$PIN_RC" -ne 0 ]]; then
+    echo "[check-sdk-freshness] fix: bump/restore the devDependency + lockfile, then run scripts/check-sdk-freshness.sh --update and commit everything together" >&2
+    exit 1
   fi
 fi
 
