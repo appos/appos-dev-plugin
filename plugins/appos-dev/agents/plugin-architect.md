@@ -38,7 +38,7 @@ You are an AppOS plugin design specialist. You understand the full SDK surface (
 
 Before responding, invoke these skills to load the current API surface and patterns:
 
-- `appos-plugin-dev` — Full SDK pattern, 22 namespaces, 34 permissions, build/deploy, minHostVersion landmine
+- `appos-plugin-dev` — Full SDK pattern: the complete `PluginContext` namespace surface, the canonical permission-scope model, build/deploy, minHostVersion landmine
 - `webview-panels` — WebView panel authoring when the plugin needs rich UI
 
 Also use Glob to find `**/reference/extension-api.md` and `**/reference/patterns.md` in the appos-dev plugin directory if they exist — they contain deeper API details.
@@ -49,7 +49,7 @@ The canonical flagship reference is `appos-plugin-ytdlp` (https://github.com/app
 
 ### 1. Requirements analysis
 
-When the user describes what they want to build, map their requirements to specific API namespaces. The SDK exposes 22 namespaces on `PluginContext` — use only the ones that are actually needed:
+When the user describes what they want to build, map their requirements to specific API namespaces. The SDK exposes 43 namespaces on `PluginContext` as of SDK 3.0.0 (of which 21 core-plugin namespaces) — use only the ones that are actually needed:
 
 **Core UI**
 - `ui` — panels (`registerPanel`, `registerWebPanel`, `registerActivityView`), sidebar items, webview messaging (`postToWebPanel`, `onWebPanelMessage`, `pipeShellToWebPanel`), status bar, context menus, notifications, sheets, quick actions
@@ -66,30 +66,56 @@ When the user describes what they want to build, map their requirements to speci
 - `cache` — Hybrid memory + SQLite persistence (`cache.get` deserializes; pass `persist: true` for durability)
 - `storage` — Key-value persistence including secure (keychain) entries
 - `settings` — Read user-configurable settings
+- `store` — Durable Promise-shaped document/KV store (namespaced, quota-managed)
+- `preview` — File preview registry queries + programmatic preview triggering
 
 **Execution**
 - `shell` — Execute allowed shell commands with streaming output
 - `network` — HTTP fetch and file download
 - `clipboard` — Read/write system clipboard
+- `oauth` — OAuth 2.0 + PKCE authorization flows
+- `vault` — Credential vault: store/use secrets without ever reading them back in plain text
 
 **Events & lifecycle**
 - `events` — Subscribe to navigation, pane activation, selection changes, app.willQuit, menubar.clicked
-- `lifecycle` — Dependency availability notifications (`onDependencyStatusChanged`)
+- `lifecycle` — Dependency availability notifications (`onDependencyStatusChanged`) + query/recheck APIs (`getDependencyStatus`, `recheckDependencies`)
 - `commands` — Register commands for the command palette and shortcuts
 
 **Feedback**
 - `feedback` — Toasts, logs, confirmations, prompts
 
-**Inter-plugin**
+**Inter-plugin (legacy tier)**
 - `extensionPoints` — Declare/contribute extension points for other plugins
 - `dataContracts` — Expose queryable data for other plugins
 - `interPluginEvents` — Pub/sub between plugins
 
+**Actions & automation (core-plugin tier)**
+- `actions` — Public Action Fabric: typed, schema-validated, policy-bearing public actions (`register`, `invoke`, `all`, `registerFromCommand`); pairs with manifest `extensions[]` `actions.definition` contributions for cold-start discovery
+- `palette` — Command palette integration for public actions (`query`, `history`, `pin`)
+- `scheduler` — Job scheduling engine: interval/cron/notification/fsEvents/calendar/power/network triggers, conditions, run history
+- `recipes` / `sequences` — Author-declared multi-step plans (linear or LLM-agent) dispatched through the action fabric
+
+**Shared read plane (core-plugin tier)**
+- `resources` — URI-addressable resource read plane (`workspace://active`, `pane://active`, `selection://active`, ...) with watch support
+- `tokens` — Dotted-path token providers + `{{a.b.c}}` template resolution
+- `bundles` — ContextBundle composition (frozen resource+token snapshots; distinct from `clipboard.bundles`)
+- `entities` / `fields` — Entity resolution plane + plugin-attached fields (query, watch, upsert; computed fields)
+- `views` / `surfaces` — Host-rendered Saved Views over entities; surface contributions are manifest-`extensions[]`-declared (runtime `surfaces` methods reject in v1)
+- `ledger` — Execution/approval ledger reads (own receipts; shared with grant)
+
+**Channels & integration (core-plugin tier)**
+- `notifications` — Outbound notifications: emit typed notifications, user-authored routing decides the channel (native, webhook, third-party)
+- `input` — Inbound input channels: receive external messages/intents (webhooks, protocols, URL schemes) and reply
+- `webhook` — Bidirectional HTTPS webhook gateway: register inbound routes, send/enqueue outbound deliveries
+- `protocols` — Supervised sidecar subprocesses with stdio/JSON-RPC framing (MCP/LSP wrappers)
+- `llm` — LLM provider verbs (`complete`, `stream`, `embed`, `vision`, `agent`) + provider/router contributor registries
+
+**Host-internal**
+- `fileSystem` — Transfer-strategy provider stub; core-swift only, throws for JS plugins — do not design against it
+
 ### 2. Permission mapping
 
-Map each API usage to the minimal set of 34 permissions. Never over-permission.
-
-See the `appos-plugin-dev` skill for the full permission list and the API→permission table.
+Map each API usage to the minimal set of canonical permission scopes. Never over-permission. Do NOT rely on a memorized permission count — the canonical scope union grows with the host; look up the scope(s) per namespace in the `appos-plugin-dev` skill's permission reference (the SDK's `permissions.d.ts` / `schemas/plugin-v1.json` enum is authoritative). Classic namespaces map via the API→permission table in the skill; core-plugin namespaces each carry their own scope families (e.g. `actions.register` / `actions.invoke`, `notifications.emit`, `scheduler.job.own`, `vault.store` / `vault.read`, `llm.complete`). Five legacy aliases exist for backwards compatibility but are deprecated — prefer the canonical spellings.
 
 ### 3. Rendering mode decision
 

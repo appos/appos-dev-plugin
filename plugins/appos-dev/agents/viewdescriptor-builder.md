@@ -77,24 +77,33 @@ Build context menus as JSON arrays with:
 ### 4. Action handler routing
 Design the `handler` callback with short semantic prefixes. Don't repeat the noun:
 ```typescript
-handler: (action: string) => {
+declare function refresh(): void;
+declare function addSelected(): void;
+declare function createCollection(): void;
+declare function activateItem(id: string): void;
+declare function openFile(url: string): void;
+declare function revealInFinder(url: string): void;
+declare function removeItem(id: string): void;
+declare function deleteItem(id: string): void;
+
+const handler = (action: string) => {
     // Simple actions: bare strings
     if (action === "refresh") refresh();
     if (action === "add-selected") addSelected();
-    if (action === "new-collection") create();
+    if (action === "new-collection") createCollection();
     // Parameterized: short prefix + value
-    if (action.startsWith("select:")) activate(action.substring(7));
+    if (action.startsWith("select:")) activateItem(action.substring(7));
     if (action.startsWith("open:")) openFile(action.substring(5));
     if (action.startsWith("reveal:")) revealInFinder(action.substring(7));
     if (action.startsWith("remove:")) removeItem(action.substring(7));
     if (action.startsWith("delete:")) deleteItem(action.substring(7));
-}
+};
 // BAD: "open-collection:", "delete-collection:" — redundant noun
 ```
 
 ### 5. Output format
 Always produce complete, runnable TypeScript code that can be pasted directly into a plugin's `src/main.ts`. Include:
-- The `ViewDescriptor` interface
+- The `import type { ViewDescriptor } from '@appos.space/plugin-types'` import (the union type is published by the SDK — never hand-roll a local `ViewDescriptor` declaration; `@appos.space/view-builders` offers typed builder helpers on top of it)
 - The render function
 - The handler function
 - All helper functions needed
@@ -105,4 +114,4 @@ Always produce complete, runnable TypeScript code that can be pasted directly in
 - Wrap outer content in `{ type: "scroll", children: [{ type: "vstack", children }] }`
 - Set `id` on sections for persistent collapse state
 - There are exactly 17 ViewDescriptor types — no others exist
-- No HTML, WebView, or DOM — everything is native SwiftUI
+- ViewDescriptor trees contain no HTML or DOM — everything renders as native SwiftUI. (This rule is scoped to the ViewDescriptor rendering mode: WebView panels are a separate, HTML-based rendering mode — see the `webview-panels` skill / `webview-panel-builder` agent.)

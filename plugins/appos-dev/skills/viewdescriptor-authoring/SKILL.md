@@ -1,4 +1,5 @@
 ---
+name: viewdescriptor-authoring
 description: >
   Build ViewDescriptor UI trees for AppOS plugins. Use this skill when building or
   designing sidebar panels, activity views, or any plugin UI. Triggers on: "ViewDescriptor",
@@ -94,6 +95,8 @@ Set `width` on `text` or `button` inside `listItem.children` for fixed-width tra
 JSON-encoded array on `listItem.properties.menuActions`:
 
 ```typescript
+const url = "file:///Users/me/notes.md";
+
 const menu = [
     { title: "Open", icon: "arrow.up.forward.app", action: "open:" + url },
     { title: "Reveal in Finder", icon: "magnifyingglass", action: "reveal:" + url },
@@ -101,7 +104,7 @@ const menu = [
     { title: "Delete", icon: "trash", action: "delete:" + url, destructive: true }
 ];
 
-properties: { menuActions: JSON.stringify(menu) }
+const properties = { menuActions: JSON.stringify(menu) };
 ```
 
 **Rules:**
@@ -172,8 +175,13 @@ Always provide guidance when there's no data:
 Wrap in scroll > vstack for scrollable content:
 
 ```typescript
+import type { ViewDescriptor } from '@appos.space/plugin-types';
+
+declare const children: ViewDescriptor[];
+declare function handleAction(action: string): void;
+
 // Sidebar panel (default)
-context.ui.registerPanel("my-panel", {
+ctx.ui.registerPanel("my-panel", {
     title: "My Plugin",
     icon: "puzzlepiece.extension",
     position: "bottom",   // "top" or "bottom"
@@ -183,7 +191,7 @@ context.ui.registerPanel("my-panel", {
 });
 
 // Full-pane view — takes an entire pane instead of sidebar
-context.ui.registerPanel("my-pane", {
+ctx.ui.registerPanel("my-pane", {
     title: "My Plugin",
     icon: "tray.2.fill",
     target: "pane",        // KEY: "pane" instead of default "sidebar"
@@ -193,17 +201,27 @@ context.ui.registerPanel("my-pane", {
 });
 ```
 
-Call `registerPanel` with the same ID to reactively replace the view.
+`title` and `view` are required (`PanelOptions`, SDK 3.0.0). `registerPanel` is typed to return a registration-token string. Call it again with the same ID to reactively replace the view.
 
 ## Full-pane layout: unified zones
 
 Full-pane plugins should use a **unified layout** with composable builder functions — never toggle between separate views (list mode ↔ detail mode).
 
 ```typescript
+import type { ViewDescriptor, PluginColor } from '@appos.space/plugin-types';
+
+type Item = { id: string; name: string; icon: string; count: number; color: PluginColor };
+declare function buildNav(): ViewDescriptor[];
+declare function getActive(): Item | undefined;
+declare function buildToolbar(item: Item): ViewDescriptor[];
+declare function buildItemList(item: Item): ViewDescriptor[];
+declare function buildEmptyState(): ViewDescriptor[];
+declare function handler(action: string): void;
+
 function render(): void {
     const children: ViewDescriptor[] = [];
     children.push(...buildNav());           // Always-visible nav/picker (~20%)
-    children.push({ type: "divider", properties: {} });
+    children.push({ type: "divider" });
     const item = getActive();
     if (item) {
         children.push(...buildToolbar(item));    // Contextual toolbar hstack
@@ -212,6 +230,7 @@ function render(): void {
         children.push(...buildEmptyState());     // Guidance text
     }
     ctx.ui.registerPanel("my-pane", {
+        title: "My Plugin",
         target: "pane",
         view: { type: "scroll", children: [{ type: "vstack", children }] },
         handler
@@ -224,6 +243,10 @@ Each `build*()` function returns `ViewDescriptor[]`. Composable, no mode state.
 ### Toolbar pattern for full-pane views
 
 ```typescript
+import type { ViewDescriptor, PluginColor } from '@appos.space/plugin-types';
+
+type Item = { id: string; name: string; icon: string; count: number; color: PluginColor };
+
 function buildToolbar(item: Item): ViewDescriptor[] {
     return [{
         type: "hstack",
@@ -243,6 +266,9 @@ function buildToolbar(item: Item): ViewDescriptor[] {
 Pair full-pane views with a lightweight activity bar icon. Don't duplicate the pane content — just provide an entry point:
 
 ```typescript
+declare const items: { length: number };
+declare function handleAction(action: string): void;
+
 ctx.ui.registerActivityView("my-activity", {
     title: "My Plugin",
     icon: "tray.2.fill",

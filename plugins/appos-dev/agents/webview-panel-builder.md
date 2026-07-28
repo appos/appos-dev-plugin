@@ -114,6 +114,10 @@ The bridge routes shell chunks to a separate listener bucket so protocol handler
 Write a typed discriminated union in `src/types/webview-messages.ts`:
 
 ```ts
+// Domain payload types — define these for your plugin
+export type QueueEntry = { id: string; url: string; progress: number };
+export type Metadata = Record<string, unknown>;
+
 export type PanelInboundMessage =
     | { v: 1; type: 'probe-url'; probeId: string; url: string }
     | { v: 1; type: 'queue-download'; requestId: string; url: string; format: string }
@@ -137,20 +141,25 @@ export function parseInbound(data: unknown): PanelInboundMessage | null {
 
 ### 5. Wire the plugin-side handler
 
-```ts
-import { parseInbound } from '../types/webview-messages.js';
+```ts no-verify
+// (multi-file fragment — the relative import resolves only inside a real plugin tree)
+import type { PluginContext, WebPanelMessage } from '@appos.space/plugin-types';
+import { parseInbound, type PanelInboundMessage } from '../types/webview-messages.js';
+
+declare function handle(ctx: PluginContext, msg: PanelInboundMessage, envelope: WebPanelMessage): Promise<void>;
 
 let disposed = false;
 
 export function registerDownloadPanel(ctx: PluginContext): () => void {
-    ctx.ui.registerWebPanel('download', {
+    // SDK 3.0.0 types both calls as returning registration-token strings.
+    const panelToken = ctx.ui.registerWebPanel('download', {
         title: 'Downloads',
         icon: 'arrow.down.circle',
         htmlPath: 'webview/download/index.html',
         allowNavigation: false,
     });
 
-    ctx.ui.onWebPanelMessage('download', (envelope) => {
+    const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
         if (disposed) return;
         const msg = parseInbound(envelope.data);
         if (!msg) return;
@@ -166,11 +175,14 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
 }
 ```
 
-`onWebPanelMessage` returns `void`, not a disposer. Use a `disposed` flag inside the handler closure for cleanup.
+Capture the string tokens per the 3.0.0 types, but do not build cleanup on their runtime values: the shipped 1.0.0 host returns `undefined` from both calls at runtime (host↔d.ts reconciliation is a known SDK follow-up), and it removes panels and message handlers automatically on plugin unload. Use the `disposed` flag for mid-life teardown; re-calling `onWebPanelMessage` for the same panel replaces the previous handler.
 
 ### 6. Wire pipeShellToWebPanel (for CLI wrappers)
 
 ```ts
+declare const url: string;
+declare const absoluteOutputDir: string;
+
 const result = await ctx.ui.pipeShellToWebPanel('download', {
     command: 'yt-dlp',
     args: ['--ignore-config', '--newline', '--progress-template', '[progress]%(progress)j', url],
@@ -191,13 +203,15 @@ const result = await ctx.ui.pipeShellToWebPanel('download', {
 For progress updates, throttle to ~10 Hz:
 
 ```ts
+declare const state: { getQueue(): unknown[] };
+
 let throttleTimer: ReturnType<typeof setTimeout> | undefined;
 let lastBroadcast = 0;
 
 function broadcastQueue(): void {
     if (typeof setTimeout !== 'function') {
         // JSC may not inject timers — fall back to sync
-        ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: [...] });
+        ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: state.getQueue() });
         return;
     }
     const now = Date.now();
@@ -205,11 +219,11 @@ function broadcastQueue(): void {
     clearTimeout(throttleTimer);
     if (remaining <= 0) {
         lastBroadcast = now;
-        ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: [...] });
+        ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: state.getQueue() });
     } else {
         throttleTimer = setTimeout(() => {
             lastBroadcast = Date.now();
-            ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: [...] });
+            ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: state.getQueue() });
         }, remaining);
     }
 }
@@ -261,4 +275,4 @@ The output should include:
 - `pipeShellToWebPanel` lives on `ctx.ui`, not `ctx.shell`
 - Throttle high-frequency broadcasts with JSC timer fallback
 - Redact error messages before logging
-- `onWebPanelMessage` has no disposer — use a `disposed` flag
+- Capture the token strings `registerWebPanel` / `onWebPanelMessage` are typed to return (SDK 3.0.0), but use a `disposed` flag for mid-life teardown — the 1.0.0 host returns `undefined` at runtime and auto-cleans on plugin unload

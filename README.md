@@ -2,14 +2,22 @@
 
 A Claude Code plugin for creating, building, testing, and deploying [AppOS](https://appos.space) workspace manager plugins using the `@appos.space` SDK.
 
-## What's new in v2.0
+## What's new in v3.0
 
-v2.0 is a full rewrite targeting the SDK+WebView flagship pattern used by `appos-plugin-ytdlp`. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern. Key changes:
+v3.0 re-anchors every teaching surface on the published SDK 3.0.0 (`@appos.space/plugin-types@3.0.0`), the surface the shipped AppOS 1.0.0 host actually exposes. The plugin's own version is deliberately aligned with the SDK major it teaches (it is NOT a `minHostVersion` — that stays `"1.0.0"`). Key changes:
 
-- **SDK-based scaffolding** — `new-plugin` now writes `package.json` with `@appos.space/plugin-types` (declaration-only types), `@appos.space/plugin-utils` (runtime helpers), and `@appos.space/view-builders` (typed view builders), plus a `tsconfig.json` with `verbatimModuleSyntax: true` and a `build.mjs` esbuild-API build script.
-- **WebView panels are first-class** — new `webview-panels` skill covers `registerWebPanel`, the host-injected webview bridge, CSP constraints, typed message protocols, throttled broadcasts, and `pipeShellToWebPanel` for streaming CLI output directly to the UI.
-- **22 namespaces, 34 permissions** — updated to match the current `@appos.space/plugin-types` surface. Adds `menubar`, `workspaces`, `smartFolders`, `cache`, `feedback`, `webview`, and more.
-- **minHostVersion landmine documented** — the single most common "plugin won't appear in Settings" bug now has a prominent warning everywhere it matters.
+- **Full 3.0.0 API surface** — 43 namespaces on `PluginContext` (of which 21 core-plugin namespaces: actions, palette, scheduler, vault, store, resources, tokens, bundles, entities, fields, ledger, views, surfaces, protocols, notifications, input, webhook, llm, recipes, sequences, fileSystem) and the 135-scope canonical permission model with 5 legacy aliases (deprecated).
+- **`extensions[]` manifests** — manifest-declarative contributions to core-plugin extension points, including the `actions.definition` dual-registration pattern (manifest entry for cold-start discovery + runtime `ctx.actions.register()` for execution).
+- **Scaffold pins `^3.0.0`** — `new-plugin` scaffolds depend on the 3.x SDK line; 3.0.0 ships no ambient globals, so all types are imported from the packages.
+- **Byte-verbatim type mirror + drift gate** — the bundled d.ts reference is a generated mirror of the published npm tarball, and CI type-checks every fenced code example against it (see "Knowledge verification" below).
+
+## What was new in v2.0
+
+v2.0 was a full rewrite targeting the SDK+WebView flagship pattern used by `appos-plugin-ytdlp`. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern. Key changes:
+
+- **SDK-based scaffolding** — `new-plugin` writes `package.json` with `@appos.space/plugin-types` (declaration-only types), `@appos.space/plugin-utils` (runtime helpers), and `@appos.space/view-builders` (typed view builders), plus a `tsconfig.json` with `verbatimModuleSyntax: true` and a `build.mjs` esbuild-API build script.
+- **WebView panels are first-class** — the `webview-panels` skill covers `registerWebPanel`, the host-injected webview bridge, CSP constraints, typed message protocols, throttled broadcasts, and `pipeShellToWebPanel` for streaming CLI output directly to the UI.
+- **minHostVersion landmine documented** — the single most common "plugin won't appear in Settings" bug has a prominent warning everywhere it matters.
 - **Canonical reference** — `appos-plugin-ytdlp` is the flagship plugin that exercises every supported SDK feature. Skills and agents point at it for ground truth.
 
 ## Features
@@ -37,6 +45,30 @@ The plugin lives at `plugins/appos-dev` inside this repo (marketplace layout):
 claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 ```
 
+## Repository layout
+
+```
+appos-dev-plugin/
+├── .claude-plugin/
+│   └── marketplace.json     # Marketplace catalog (the repo's ONLY manifest) — points at ./plugins/appos-dev
+├── plugins/
+│   └── appos-dev/           # The actual Claude Code plugin
+│       ├── commands/        # new-plugin, build, deploy, validate
+│       ├── agents/          # plugin-architect, viewdescriptor-builder, webview-panel-builder
+│       ├── skills/
+│       │   ├── appos-plugin-dev/        # Main SDK skill + reference/ (incl. plugin-api/ d.ts mirror)
+│       │   ├── viewdescriptor-authoring/
+│       │   └── webview-panels/
+│       └── compiled/        # GENERATED context artifacts consumed by the AppOS host (do not hand-edit)
+├── scripts/                 # verify-knowledge.mjs, check-sdk-freshness.sh
+├── package.json             # exact-pinned toolchain for the verification gate
+├── README.md
+├── CLAUDE.md                # contributor instructions for THIS repo (not shipped as plugin context)
+└── LICENSE
+```
+
+The `compiled/` artifacts are generated by the AppOS-Desktop repo's `scripts/compile-factory-context.sh` (which concatenates the skill sources for the host's in-app AI features) — regenerate them from that script rather than editing them; they are validated by freshness manifests, not by the knowledge gate.
+
 ## Commands
 
 | Command | Description |
@@ -51,6 +83,7 @@ claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 | Skill | Triggers on |
 |-------|-------------|
 | appos-plugin-dev | "AppOS plugin", "workspace manager plugin", PluginContext, SDK packages, workspaces, menubar |
+| viewdescriptor-authoring | "ViewDescriptor", "sidebar panel UI", "listItem", "menuActions", "section with badge", column alignment |
 | webview-panels | "registerWebPanel", "postToWebPanel", "pipeShellToWebPanel", "bridge.js", "shell chunks", CSP, webview |
 
 ## Agents
@@ -58,6 +91,7 @@ claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 | Agent | Purpose |
 |-------|---------|
 | plugin-architect | Designs plugin structure from requirements — maps APIs, permissions, rendering mode, settings |
+| viewdescriptor-builder | Builds ViewDescriptor JSON trees — all 17 view types, columns, menuActions, empty/loading states |
 | webview-panel-builder | Builds WebView panels end-to-end — registration, HTML bundle, typed message protocol, pipeShellToWebPanel wiring |
 
 ## Prerequisites

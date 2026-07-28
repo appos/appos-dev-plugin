@@ -72,13 +72,13 @@ If WebView panels are needed, also create `$TARGET/webview/{panelId}/` and `$TAR
         "typecheck": "tsc --noEmit"
     },
     "devDependencies": {
-        "@appos.space/plugin-types": "^2.4.0",
+        "@appos.space/plugin-types": "^3.0.0",
         "esbuild": "^0.20.0",
         "typescript": "^5.4.0"
     },
     "dependencies": {
-        "@appos.space/plugin-utils": "^2.4.0",
-        "@appos.space/view-builders": "^2.4.0"
+        "@appos.space/plugin-utils": "^3.0.0",
+        "@appos.space/view-builders": "^3.0.0"
     }
 }
 ```
@@ -156,7 +156,7 @@ if (isWatch) {
 
 ## 8. Write plugin.json
 
-**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.0.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
+**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.0.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"3.0.0"`, or the older `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
 
 ```json
 {
@@ -178,6 +178,31 @@ if (isWatch) {
 ```
 
 Add permissions incrementally based on what the plugin actually does. If it uses a WebView panel, add BOTH `"ui.webPanel"` AND `"webview"`. If it uses a CLI, add `shell.execute`, `"shellCommands": ["your-tool"]`, and a `dependencies.system[]` entry with a check command and install hint. If it uses the menubar, add `"menubar"` and remember to call `ctx.menubar.setContent()` to populate the popover (without it, clicking shows "No content").
+
+### Optional: declare public actions via `extensions[]`
+
+If the plugin exposes public actions (command palette, automation), add an `extensions[]` array with `actions.definition` contributions (requires the `actions.register` permission):
+
+```json
+"extensions": [
+    {
+        "extensionPoint": "space.appos.core.actions:actions.definition",
+        "contribution": {
+            "id": "refresh-stats",
+            "displayName": "Refresh File Stats",
+            "description": "Re-scan the active directory.",
+            "inputSchema": { "type": "object" },
+            "visibility": ["palette"],
+            "risk": "read",
+            "approval": "auto"
+        }
+    }
+]
+```
+
+**Dual registration is required.** The host replays manifest `extensions[]` `actions.definition` contributions into the actions discovery tier at startup, so the action is discoverable cold-start (palette, `ctx.actions.all()`, the Settings → Actions browser — badged "manifest only") before your code ever runs. But a manifest entry alone is NOT executable — invoking it returns `ACTION_NOT_FOUND` until your `activate()` also calls `ctx.actions.register()` with the same id to bind the handler (the executable registration shadows the manifest stub; no duplicate rows). Ship BOTH: the manifest contribution for cold-start discoverability AND the runtime `register()` for execution.
+
+**Removal marker**: when you retire an action, remove BOTH sites. Deleting only the runtime `register()` call leaves the manifest stub re-replayed at every cold start — a permanently non-executable palette entry.
 
 ## 9. Write src/main.ts
 
@@ -250,7 +275,10 @@ Minimal `index.html`:
 Then in `src/main.ts`, register the panel:
 
 ```ts
-ctx.ui.registerWebPanel('{panelId}', {
+const disposables: Array<() => void | Promise<void>> = [];  // declared once, in step 9
+
+// SDK 3.0.0 types both calls as returning registration-token strings.
+const panelToken = ctx.ui.registerWebPanel('{panelId}', {
     title: '{Panel Title}',
     icon: 'square.grid.2x2',          // SF Symbol
     htmlPath: 'webview/{panelId}/index.html',
@@ -258,14 +286,14 @@ ctx.ui.registerWebPanel('{panelId}', {
 });
 
 let panelDisposed = false;
-ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
+const messageToken = ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
     if (panelDisposed) return;
     // handle messages from webview
 });
 disposables.push(() => { panelDisposed = true; });
 ```
 
-`onWebPanelMessage` does NOT return a disposer — never push its return value into `disposables`. Use a `disposed` flag as above. See the `webview-panels` skill → "Cleanup" section.
+Capture the string tokens (`panelToken`, `messageToken`) per the 3.0.0 types, but do NOT build cleanup on their runtime values — the shipped 1.0.0 host returns `undefined` from both calls at runtime (host↔d.ts reconciliation is a known SDK follow-up), and it removes panels and message handlers automatically on plugin unload. Use the `disposed` flag as above for mid-life teardown; calling `onWebPanelMessage` again for the same panel replaces the previous handler. See the `webview-panels` skill → "Cleanup" section.
 
 ## 11. Build
 
