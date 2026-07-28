@@ -292,7 +292,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
         allowNavigation: false,
     });
 
-    ctx.ui.onWebPanelMessage('download', (envelope) => {
+    const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
         if (disposed) return;
         const msg = parseInbound(envelope.data);
         if (!msg) return;
@@ -302,6 +302,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
             console.error(`[download] Handler "${msg.type}" failed (${name})`);
         });
     });
+    void messageToken; // no handler-unregister API — see key points below
 
     return () => {
         disposed = true;
@@ -313,8 +314,12 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
 **Key points**:
 - `registerWebPanel` returns a registration id — capture it and pass it to
   `ctx.ui.unregister` in your disposer (3.0.0 types this; 2.x hid it).
-- `onWebPanelMessage` allows one handler per panelId (re-registering
-  replaces it); use a `disposed` flag inside the closure as the guard.
+- `onWebPanelMessage` / `onWebPanelRequest` also return tokens, but the
+  host exposes NO handler-unregister API — `ctx.ui.unregister` takes only
+  slot-based contribution ids (panels, toolbar items, status bar items),
+  not handler tokens. Capture the token for identification/debugging; the
+  `disposed` flag is the actual disposal mechanism. One handler per
+  panelId — re-registering replaces the previous handler.
 - Wrap every handler in `Promise.resolve().then(...).catch(...)` so sync
   throws and async rejections land in the same error path.
 - Never log raw `err.message` — it may contain URLs, credentials, or user
@@ -904,22 +909,27 @@ async function activate(ctx: PluginContext): Promise<void> {
     });
     disposables.push(() => ctx.ui.unregister(panelToken));
 
-    ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
+    // SECURITY: messages are SEMANTIC intents, never shell-shaped. The
+    // webview may only ask for named operations; the plugin hardcodes the
+    // command + argv per intent. NEVER forward a command or argv array
+    // from webview input into ctx.shell.execute — a compromised or buggy
+    // panel could then drive any allowlisted binary with arbitrary flags.
+    const messageToken = ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
         if (typeof envelope.data !== 'object' || envelope.data === null) return;
         const raw = envelope.data as Record<string, unknown>;
         if (raw.v !== 1 || typeof raw.type !== 'string') return;
 
-        if (raw.type === 'run-command') {
-            if (typeof raw.command !== 'string') return;
-            const args = Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === 'string') : [];
-            Promise.resolve().then(() => runCommand(ctx, raw.command as string, args)).catch((err) => {
+        if (raw.type === 'show-version') {
+            Promise.resolve().then(() => showVersion(ctx)).catch((err) => {
                 const name = err instanceof Error ? err.constructor.name : 'unknown';
-                console.error(`[mytools] runCommand failed (${name})`);
+                console.error(`[mytools] showVersion failed (${name})`);
             });
         }
+        // Unknown message types are dropped — no generic fallthrough.
     });
+    void messageToken; // no handler-unregister API (pattern 6)
 
-    ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
+    const requestToken = ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
         if (typeof envelope.data !== 'object' || envelope.data === null) {
             return { v: 1, type: 'error', message: 'invalid payload' };
         }
@@ -932,9 +942,12 @@ async function activate(ctx: PluginContext): Promise<void> {
         }
         return { v: 1, type: 'error', message: 'unknown request' };
     });
+    void requestToken; // no handler-unregister API (pattern 6)
 }
 
-async function runCommand(ctx: PluginContext, command: string, args: string[]): Promise<void> {
+// One function per intent: command + argv are HARDCODED here, never taken
+// from the webview message.
+async function showVersion(ctx: PluginContext): Promise<void> {
     // T1 plugins must use cwd within active pane roots
     const activeDir = await ctx.fileOps.getActiveDirectory();
     const cwd = activeDir ? urlToPath(activeDir) : undefined;
@@ -943,8 +956,8 @@ async function runCommand(ctx: PluginContext, command: string, args: string[]): 
     ctx.ui.postToWebPanel('main-panel', { v: 1, type: 'started' });
 
     const result = await ctx.shell.execute({
-        command,
-        args,
+        command: 'mytool',          // fixed binary (must be in shellCommands)
+        args: ['--version'],        // fixed argv for this intent
         cwd,
         onData: (chunk) => {
             ctx.ui.postToWebPanel('main-panel', {
@@ -1039,8 +1052,8 @@ window.twopanez.onMessage((msg) => {
 });
 
 runBtn.addEventListener('click', () => {
-    // Fire-and-forget message to plugin
-    window.twopanez.send({ v: 1, type: 'run-command', command: 'mytool', args: ['--version'] });
+    // Fire-and-forget SEMANTIC intent — the plugin decides what to execute.
+    window.twopanez.send({ v: 1, type: 'show-version' });
 });
 
 // Request/response example
@@ -1054,6 +1067,9 @@ checkStatus();
 **Key points:**
 - Register the SHORT id `main-panel` — runtime auto-prefixes to
   `{pluginId}.main-panel`
+- **WebView messages are semantic intents** (`show-version`), never
+  shell-shaped (`{ command, args }`) — the plugin hardcodes command + argv
+  per intent, so webview input can never steer `ctx.shell.execute`
 - All JS and CSS are external files (CSP blocks inline `<script>` and
   `<style>`)
 - WebView-side code ships as plain `.js` — for typed WebView TypeScript,
