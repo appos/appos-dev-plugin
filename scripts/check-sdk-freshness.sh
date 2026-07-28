@@ -133,7 +133,9 @@ if [[ -z "$REGISTRY_INTEGRITY" ]]; then
   exit 2
 fi
 
-TMP_DIR="$(mktemp -d -t sdk-freshness)" || exit 2
+# Portable mktemp: GNU (Linux CI) requires >=3 X's in the template; BSD (macOS)
+# accepts an explicit path template too. An explicit path works on both.
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sdk-freshness.XXXXXXXX")" || exit 2
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 ( cd "$TMP_DIR" && npm pack "$PKG@$VERSION" --silent >/dev/null 2>&1 )
