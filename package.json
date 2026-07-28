@@ -6,7 +6,8 @@
   "scripts": {
     "verify": "node scripts/verify-knowledge.mjs",
     "freshness": "scripts/check-sdk-freshness.sh",
-    "check": "npm run freshness && npm run verify"
+    "freshness:compiled": "scripts/check-compiled-freshness.sh",
+    "check": "npm run freshness && npm run verify && npm run freshness:compiled"
   },
   "devDependencies": {
     "@appos.space/plugin-types": "3.0.0",

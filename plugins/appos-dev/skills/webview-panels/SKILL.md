@@ -120,22 +120,26 @@ Module paths are relative to the HTML file. ES modules work because WKWebView's 
 
 ## The bridge (`window.twopanez`)
 
-The host injects `window.twopanez` at document start, before any module runs. Its shape:
+The host injects `window.twopanez` at document start, before any module runs. The published `@appos.space/plugin-types` package does not type it (WebView code is a separate compilation world), so ship this local ambient declaration alongside your webview sources (authoritative copy: `appos-plugin-dev/reference/extension-api.md` § "WebView-side bridge (`window.twopanez`)"):
 
-```ts no-verify
-// Shape sketch (not compile-checked): window.twopanez is a host-injected global
-// that the published @appos.space/plugin-types package does not type.
-window.twopanez = {
-    send(msg: object): void;            // Fire-and-forget → onWebPanelMessage
-    request(msg: object): Promise<any>; // Request/response → onWebPanelRequest
-    onMessage(fn: (data: unknown) => void): void;  // Inbound from postToWebPanel
-    readonly instanceId: string;        // Per-WKWebView UUID
-    readonly windowId: string;          // App window ID
-    readonly paneId: 'left' | 'right';  // Which pane this webview is in
-};
+```ts
+// webview/twopanez.d.ts — ship alongside your webview sources.
+// The host injects window.twopanez at runtime; the SDK does not type it.
+interface TwopanezBridge {
+    send(message: unknown): void;
+    request(message: unknown): Promise<unknown>;
+    onMessage(handler: (message: unknown) => void): void;
+    readonly instanceId: string;
+    readonly windowId: string;
+    readonly paneId: 'left' | 'right';
+}
+declare global {
+    interface Window { readonly twopanez: TwopanezBridge; }
+}
+export {};
 ```
 
-Note: `window.twopanez` is not typed by the published SDK package; webview-side TypeScript may adopt a local ambient declaration for it in a future revision of this skill.
+Semantics: `send` is fire-and-forget (arrives host-side via `onWebPanelMessage`); `request` is request/response (`onWebPanelRequest`); `onMessage` receives everything the plugin pushes via `postToWebPanel`. `instanceId` is the per-WKWebView UUID, `windowId` the app window ID, and `paneId` says which pane hosts the view.
 
 Wrap it in a thin `shared/bridge.js` module so panel scripts don't depend on the raw global and can be tested in isolation. Pattern from the ytdlp plugin:
 

@@ -7,6 +7,9 @@
 #   2. verify-knowledge.mjs    — teaching surfaces type-check against the
 #      pinned SDK (fence compile + exported-name-set diff + stale-identifier
 #      denylist + count-string consistency)
+#   3. check-compiled-freshness.sh (fn-165.4) — compiled/ artifacts match
+#      their manifest in BOTH directions (source changed without regen /
+#      compiled artifact edited directly)
 #
 # Deterministic diagnostics: `npm ci` against the committed package-lock.json
 # (typescript + @appos.space/* pinned EXACTLY in devDependencies).
@@ -37,7 +40,5 @@ jobs:
       - name: Knowledge verification (fence type-check + denylist + counts)
         run: node scripts/verify-knowledge.mjs
 
-      # fn-165.4 slot: compiled-artifact freshness (sources changed without
-      # compiled regen?). Added when the compile pipeline lands:
-      #   - name: Compiled-artifact freshness
-      #     run: scripts/check-compiled-freshness.sh
+      - name: Compiled-artifact freshness (sources vs compiled/ manifest, both directions)
+        run: scripts/check-compiled-freshness.sh
