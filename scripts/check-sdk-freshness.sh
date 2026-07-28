@@ -167,21 +167,28 @@ if [[ "$MODE" == "update" ]]; then
     exit 1
   fi
 
-  rm -rf "$MIRROR_DIR"
-  mkdir -p "$MIRROR_DIR"
+  # Stage-then-swap: build the ENTIRE new mirror + INDEX + pin in a staging
+  # area first, guarding every write, so an I/O failure (full disk, perms)
+  # exits non-zero without having touched the committed artifacts. Only the
+  # final swap mutates the repo — and each swap step is guarded too, so even
+  # a mid-swap failure exits non-zero (and check mode would then fail loudly
+  # on the inconsistent state rather than trusting it).
+  STAGE_DIR="$TMP_DIR/stage"
+  STAGE_PIN="$TMP_DIR/sdk-integrity.staged"
+  mkdir -p "$STAGE_DIR" || { echo "[check-sdk-freshness] ERROR could not create staging dir" >&2; exit 2; }
   for f in "${TARBALL_DTS[@]}"; do
-    cp "$DIST_DIR/$f" "$MIRROR_DIR/$f"
+    cp "$DIST_DIR/$f" "$STAGE_DIR/$f" || { echo "[check-sdk-freshness] ERROR staging copy failed for $f" >&2; exit 2; }
   done
 
   COUNTS_JSON="$(node scripts/verify-knowledge.mjs --counts "$DIST_DIR")" || {
     echo "[check-sdk-freshness] ERROR could not derive surface counts from $DIST_DIR" >&2
     exit 2
   }
-  NS_COUNT="$(node -pe "($COUNTS_JSON).namespaces")"
-  SCOPE_COUNT="$(node -pe "($COUNTS_JSON).canonicalScopes")"
-  LEGACY_COUNT="$(node -pe "($COUNTS_JSON).legacyAliases")"
-  CORE_NS_COUNT="$(node -pe "($COUNTS_JSON).corePluginNamespaces")"
-  TOTAL_LINES="$(cat "$MIRROR_DIR"/*.d.ts | wc -l | tr -d ' ')"
+  NS_COUNT="$(node -pe "($COUNTS_JSON).namespaces")" || exit 2
+  SCOPE_COUNT="$(node -pe "($COUNTS_JSON).canonicalScopes")" || exit 2
+  LEGACY_COUNT="$(node -pe "($COUNTS_JSON).legacyAliases")" || exit 2
+  CORE_NS_COUNT="$(node -pe "($COUNTS_JSON).corePluginNamespaces")" || exit 2
+  TOTAL_LINES="$(cat "$STAGE_DIR"/*.d.ts | wc -l | tr -d ' ')" || exit 2
 
   {
     printf '# Bundled SDK type mirror — %s@%s\n\n' "$PKG" "$VERSION"
@@ -199,15 +206,36 @@ if [[ "$MODE" == "update" ]]; then
     printf -- '- verify: `scripts/check-sdk-freshness.sh`\n\n'
     printf '| file | sha256 |\n|---|---|\n'
     for f in "${TARBALL_DTS[@]}"; do
-      printf '| %s | %s |\n' "$f" "$(sha256_of "$MIRROR_DIR/$f")"
+      SHA="$(sha256_of "$STAGE_DIR/$f")" || exit 2
+      printf '| %s | %s |\n' "$f" "$SHA"
     done
-  } > "$INDEX_FILE"
+  } > "$STAGE_DIR/INDEX.md" || { echo "[check-sdk-freshness] ERROR writing staged INDEX.md failed" >&2; exit 2; }
 
   {
     printf 'package=%s\n' "$PKG"
     printf 'version=%s\n' "$VERSION"
     printf 'integrity=%s\n' "$REGISTRY_INTEGRITY"
-  } > "$PIN_FILE"
+  } > "$STAGE_PIN" || { echo "[check-sdk-freshness] ERROR writing staged pin failed" >&2; exit 2; }
+
+  # Staged-content sanity before touching the repo: every expected file
+  # present, and every staged d.ts byte-equal to the tarball source.
+  for f in "${TARBALL_DTS[@]}"; do
+    cmp -s "$DIST_DIR/$f" "$STAGE_DIR/$f" || { echo "[check-sdk-freshness] ERROR staged $f not byte-equal to tarball (I/O corruption?)" >&2; exit 2; }
+  done
+  [[ -s "$STAGE_DIR/INDEX.md" && -s "$STAGE_PIN" ]] || { echo "[check-sdk-freshness] ERROR staged INDEX.md/pin empty" >&2; exit 2; }
+
+  # Swap into place (guarded; a failure here exits non-zero and the committed
+  # tree is left for check mode to flag rather than being trusted).
+  rm -rf "$MIRROR_DIR" || { echo "[check-sdk-freshness] ERROR could not remove old mirror $MIRROR_DIR" >&2; exit 2; }
+  mkdir -p "$(dirname "$MIRROR_DIR")" || exit 2
+  if ! mv "$STAGE_DIR" "$MIRROR_DIR"; then
+    echo "[check-sdk-freshness] ERROR mirror swap failed — repo has NO mirror right now; re-run --update" >&2
+    exit 2
+  fi
+  if ! mv "$STAGE_PIN" "$PIN_FILE"; then
+    echo "[check-sdk-freshness] ERROR pin swap failed — $PIN_FILE is stale vs the new mirror; re-run --update (check mode will fail loudly until then)" >&2
+    exit 2
+  fi
 
   echo "[check-sdk-freshness] UPDATED $MIRROR_DIR (${#TARBALL_DTS[@]} d.ts files), $INDEX_FILE, $PIN_FILE for $PKG@$VERSION"
   exit 0
