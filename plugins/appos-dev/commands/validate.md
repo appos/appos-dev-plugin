@@ -20,21 +20,22 @@ Read `$PLUGIN_ROOT/plugin.json` and check:
 - **Runtime**: must be `"javascript"`
 - **Entrypoint**: must point at a JS file that exists (typically `"dist/main.js"`)
 - **Version**: valid semver (MAJOR.MINOR.PATCH)
-- **minHostVersion**: **LANDMINE CHECK** — this must be the host app `CFBundleShortVersionString`, NOT the `@appos.space/plugin-types` SDK version. If it's set to `"2.0.0"`, `"2.1.0"`, `"2.2.0"`, `"2.3.0"`, `"2.4.0"`, or similar SDK-like values, flag it as an ERROR. Default safe value: `"1.0.0"`. Host version can be read via:
+- **minHostVersion**: **LANDMINE CHECK** — this must be the host app `CFBundleShortVersionString`, NOT the `@appos.space/plugin-types` SDK version. If it's set to `"3.0.0"` (the current SDK major), `"2.0.0"`, `"2.1.0"`, `"2.2.0"`, `"2.3.0"`, `"2.4.0"`, or similar SDK-like values, flag it as an ERROR. Default safe value: `"1.0.0"`. Note the dev-plugin itself is versioned 3.0.0 (aligned with the SDK it teaches) — that number is ALSO not a valid `minHostVersion`. Host version can be read via:
   ```bash
   defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString
   ```
+  If a from-source/dev build of the host reports `0.0.0` (symptom: even `minHostVersion: "1.0.0"` plugins get rejected), the cause is a mis-generated Xcode project: xcodegen defaults version keys to a 2-component `"1.0"`, which fails the host's strict `X.Y.Z` semver parse and collapses to `0.0.0`. That's a host build issue (fixed in the host's `project.yml` version properties), not a plugin manifest issue — report it as such instead of telling the user to lower `minHostVersion`.
 - **Permissions**: validated by the manifest schema (next step). Do NOT hand-check against a hardcoded list — the authoritative permission set lives in the SDK's `schemas/plugin-v1.json` and grows with each SDK release.
 
 ### Schema validation (authoritative)
 
 Validate the whole manifest against the SDK's published JSON Schema. This checks required fields, field shapes, and the full permissions enum in one step.
 
-**Preferred (no clone needed)** — fetch the schema from the public `appos/plugin-sdk` repo and validate with ajv:
+**Preferred (no clone needed)** — fetch the schema from the public `appos/plugin-sdk` repo's `v3.0.0` release tag and validate with ajv:
 
 ```bash
 curl -fsSL -o /tmp/appos-plugin-v1.schema.json \
-  https://raw.githubusercontent.com/appos/plugin-sdk/main/schemas/plugin-v1.json
+  https://raw.githubusercontent.com/appos/plugin-sdk/v3.0.0/schemas/plugin-v1.json
 npx --yes -p ajv-cli -p ajv-formats ajv validate \
   --spec=draft2020 -c ajv-formats \
   -s /tmp/appos-plugin-v1.schema.json -d "$PLUGIN_ROOT/plugin.json"
@@ -42,7 +43,7 @@ npx --yes -p ajv-cli -p ajv-formats ajv validate \
 
 Exit 0 with `plugin.json valid` = pass. On failure, ajv prints the offending JSON paths — e.g., an unknown permission string fails the `permissions` items enum.
 
-> **Why `main` and not a pinned SDK release tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown` — the superset the `main` schema mirrors), so `main` matches what the host actually accepts. The `v2.4.0` tag's schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, and `notifications.emit`. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch.) Note the separate compile-time bound: the SDK version you compile against (`^2.4.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK `main` ever moves ahead of your installed host, cross-check `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
+> **Why the `v3.0.0` tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS 1.0.0 host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown`), and the SDK 3.0.0 release schema mirrors exactly that: the full permission enum (135 canonical permission scopes + 5 legacy aliases (deprecated)) plus the `extensions` field for core-plugin extension contributions. Pin the tag for reproducibility; `main` currently carries the same schema, but tags don't move under you. Do NOT use the older `v2.4.0` tag — its schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, `notifications.emit`, and `extensions[]` contributions. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch from npm.) Note the separate compile-time bound: the SDK version you compile against (`^3.0.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK schema ever moves ahead of your installed host, cross-check the `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
 
 **Alternative (plugin-sdk clone available)** — validate offline with the clone's own validator, passing your manifest path as a positional argument:
 
@@ -103,6 +104,10 @@ Search `src/main.ts` and any files it imports (`src/**/*.ts`) for API usage and 
 | `ctx.menubar.register`, `.setBadge`, `.remove` | `menubar` |
 | `ctx.smartFolders.registerFilterType` | `smartFolders` |
 | `ctx.storage.getSecure`, `.setSecure` | `keychain.plugin` |
+
+The table above covers the classic namespaces. Core-plugin namespaces (`ctx.actions`, `ctx.notifications`, `ctx.scheduler`, `ctx.vault`, `ctx.store`, `ctx.resources`, `ctx.entities`, `ctx.views`, `ctx.webhook`, `ctx.llm`, `ctx.recipes`, `ctx.sequences`, ...) each require their own scopes (e.g. `actions.register`, `actions.invoke`, `notifications.emit`, `scheduler.job.own`). Do NOT hand-check those against a memorized list — look the scope up per namespace in the `appos-plugin-dev` skill's permission reference (the schema validation in step 2 is the authoritative enum check).
+
+Also cross-check `extensions[]`: an `actions.definition` contribution requires the `actions.register` permission, and each core-plugin contribution type requires its matching `*.register` scope.
 
 Report any missing permissions (API used but not declared) or excess permissions (declared but not used).
 

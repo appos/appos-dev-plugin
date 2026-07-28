@@ -1,4 +1,5 @@
 ---
+name: webview-panels
 description: >
   Build rich WebView panels for AppOS plugins — the canonical approach for plugins
   that need streaming progress, media playback, complex forms, or HTML-based UI.
@@ -49,7 +50,8 @@ Optionally a fifth piece for CLI-wrapping plugins:
 ## Registration
 
 ```ts
-ctx.ui.registerWebPanel('download', {
+// SDK 3.0.0 types registerWebPanel as returning a registration-token string.
+const panelToken = ctx.ui.registerWebPanel('download', {
     title: 'Downloads',
     icon: 'arrow.down.circle',      // SF Symbol name
     htmlPath: 'webview/download/index.html',
@@ -120,7 +122,9 @@ Module paths are relative to the HTML file. ES modules work because WKWebView's 
 
 The host injects `window.twopanez` at document start, before any module runs. Its shape:
 
-```ts
+```ts no-verify
+// Shape sketch (not compile-checked): window.twopanez is a host-injected global
+// that the published @appos.space/plugin-types package does not type.
 window.twopanez = {
     send(msg: object): void;            // Fire-and-forget → onWebPanelMessage
     request(msg: object): Promise<any>; // Request/response → onWebPanelRequest
@@ -130,6 +134,8 @@ window.twopanez = {
     readonly paneId: 'left' | 'right';  // Which pane this webview is in
 };
 ```
+
+Note: `window.twopanez` is not typed by the published SDK package; webview-side TypeScript may adopt a local ambient declaration for it in a future revision of this skill.
 
 Wrap it in a thin `shared/bridge.js` module so panel scripts don't depend on the raw global and can be tested in isolation. Pattern from the ytdlp plugin:
 
@@ -191,6 +197,12 @@ Version every message and discriminate by `type`. This lets you evolve the proto
 
 ```ts
 // types/webview-messages.ts (shared between plugin main.ts and webview)
+
+// Domain payload types — define these for your plugin
+export type QueueEntry = { id: string; url: string; progress: number };
+export type Format = { id: string; label: string };
+export type Metadata = Record<string, unknown>;
+
 export type PanelInboundMessage =
     | { v: 1; type: 'probe-url'; probeId: string; url: string }
     | { v: 1; type: 'queue-download'; requestId: string; url: string; format: string; quality: string }
@@ -216,7 +228,17 @@ export function parseInbound(data: unknown): PanelInboundMessage | null {
 ### Plugin-side handler with narrowing
 
 ```ts
-ctx.ui.onWebPanelMessage('download', (envelope) => {
+import type { PluginContext } from '@appos.space/plugin-types';
+
+type PanelInboundMessage =
+    | { v: 1; type: 'probe-url'; probeId: string; url: string }
+    | { v: 1; type: 'queue-download'; requestId: string; url: string; format: string };
+declare function parseInbound(data: unknown): PanelInboundMessage | null;
+declare function handleProbe(ctx: PluginContext, probeId: string, url: string): void;
+declare function handleEnqueue(ctx: PluginContext, msg: PanelInboundMessage): void;
+
+// SDK 3.0.0 types onWebPanelMessage as returning a registration-token string.
+const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
     // envelope.data is unknown — never trust it directly
     const msg = parseInbound(envelope.data);
     if (!msg) return;  // parseInbound logs redacted summary
@@ -238,6 +260,8 @@ ctx.ui.onWebPanelMessage('download', (envelope) => {
 ### Plugin-side push
 
 ```ts
+declare const state: { getQueue(): unknown[] };
+
 ctx.ui.postToWebPanel('download', {
     v: 1,
     type: 'queue-update',
@@ -248,6 +272,10 @@ ctx.ui.postToWebPanel('download', {
 Pass `{ instanceId }` in the options to target a single WebView instance instead of broadcasting:
 
 ```ts
+import type { WebPanelMessage } from '@appos.space/plugin-types';
+declare const envelope: WebPanelMessage;
+declare const msg: { v: 1; type: string };
+
 ctx.ui.postToWebPanel('download', msg, { instanceId: envelope.instanceId });
 ```
 
@@ -256,6 +284,8 @@ ctx.ui.postToWebPanel('download', msg, { instanceId: envelope.instanceId });
 For rapidly-changing state like download progress, throttle broadcasts to the webview so you don't spam it with hundreds of messages per second. The ytdlp plugin broadcasts `queue-update` at 10 Hz (100ms throttle):
 
 ```ts
+declare const state: { getQueue(): unknown[] };
+
 let throttleTimer: ReturnType<typeof setTimeout> | undefined;
 let lastBroadcast = 0;
 
@@ -288,6 +318,9 @@ For CLI wrappers (yt-dlp, ffmpeg, git, etc.), this routes child process output d
 
 ```ts
 // Plugin side
+declare const url: string;
+declare const outputDir: string;  // absolute, tilde-expanded
+
 const result = await ctx.ui.pipeShellToWebPanel('download', {
     command: 'yt-dlp',
     args: ['--ignore-config', '--newline', '--progress-template', '[progress]%(progress)j', url],
@@ -352,6 +385,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 ```ts
 // Plugin side
+declare const state: { emitStateUpdate(): void };
+
 const formHandlers = {
     'request-state': () => state.emitStateUpdate(),
     // ...
@@ -363,6 +398,10 @@ const formHandlers = {
 Wrap every handler in try/catch and post a fallback error response so the webview's UI recovers visibly:
 
 ```ts
+type PanelInboundMessage = { v: 1; type: string; requestId?: string };
+declare const parsed: PanelInboundMessage;
+declare function handler(msg: PanelInboundMessage): void | Promise<void>;
+
 Promise.resolve().then(() => handler(parsed)).catch((err) => {
     const errName = err instanceof Error ? err.constructor.name : 'unknown';
     console.error(`[plugin] Handler "${parsed.type}" failed (${errName})`);
@@ -370,7 +409,7 @@ Promise.resolve().then(() => handler(parsed)).catch((err) => {
     if (parsed.type === 'queue-download') {
         ctx.ui.postToWebPanel('download', {
             v: 1, type: 'enqueue-ack',
-            requestId: (parsed as any).requestId,
+            requestId: parsed.requestId,
             ok: false, count: 0,
             error: 'Internal error during enqueue',
         });
@@ -382,18 +421,21 @@ Promise.resolve().then(() => handler(parsed)).catch((err) => {
 
 ## Cleanup
 
-`onWebPanelMessage` returns `void` — there's no explicit unsubscribe. Use a `disposed` flag to no-op incoming messages after teardown:
+Per the SDK 3.0.0 types, `onWebPanelMessage` (like `registerWebPanel`) returns a registration-token string. Capture it — but do NOT build teardown on its runtime value: the shipped 1.0.0 host returns `undefined` from both calls at runtime (host↔d.ts reconciliation is a known SDK follow-up), and it removes panels and message handlers automatically on plugin unload. For mid-life teardown, use a `disposed` flag to no-op incoming messages; re-calling `onWebPanelMessage` for the same panel replaces the previous handler:
 
 ```ts
+declare let throttleTimer: ReturnType<typeof setTimeout> | undefined;
+declare function unsubscribeQueue(): void;
+
 let disposed = false;
 
-ctx.ui.onWebPanelMessage('download', (envelope) => {
+const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
     if (disposed) return;
     // ...
 });
 
-// Disposer
-return () => {
+// Disposer — push into your disposables[] in activate()
+const dispose = () => {
     disposed = true;
     if (typeof clearTimeout === 'function' && throttleTimer !== undefined) {
         clearTimeout(throttleTimer);
