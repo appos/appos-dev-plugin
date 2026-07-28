@@ -898,6 +898,7 @@ import type { PluginContext } from '@appos.space/plugin-types';
 import { urlToPath } from '@appos.space/plugin-utils';
 
 const disposables: Array<() => void | Promise<void>> = [];
+let disposed = false;
 
 async function activate(ctx: PluginContext): Promise<void> {
     // Register with SHORT id — runtime auto-prefixes to {pluginId}.main-panel
@@ -908,6 +909,9 @@ async function activate(ctx: PluginContext): Promise<void> {
         allowNavigation: false,
     });
     disposables.push(() => ctx.ui.unregister(panelToken));
+    // Handler guard: disposables drain in REVERSE, so this flips BEFORE the
+    // panel unregisters — queued messages can't slip through mid-teardown.
+    disposables.push(() => { disposed = true; });
 
     // SECURITY: messages are SEMANTIC intents, never shell-shaped. The
     // webview may only ask for named operations; the plugin hardcodes the
@@ -915,6 +919,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     // from webview input into ctx.shell.execute — a compromised or buggy
     // panel could then drive any allowlisted binary with arbitrary flags.
     const messageToken = ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
+        if (disposed) return;
         if (typeof envelope.data !== 'object' || envelope.data === null) return;
         const raw = envelope.data as Record<string, unknown>;
         if (raw.v !== 1 || typeof raw.type !== 'string') return;
@@ -930,6 +935,7 @@ async function activate(ctx: PluginContext): Promise<void> {
     void messageToken; // no handler-unregister API (pattern 6)
 
     const requestToken = ctx.ui.onWebPanelRequest('main-panel', async (envelope) => {
+        if (disposed) return { v: 1, type: 'error', message: 'plugin disposed' };
         if (typeof envelope.data !== 'object' || envelope.data === null) {
             return { v: 1, type: 'error', message: 'invalid payload' };
         }
@@ -948,6 +954,7 @@ async function activate(ctx: PluginContext): Promise<void> {
 // One function per intent: command + argv are HARDCODED here, never taken
 // from the webview message.
 async function showVersion(ctx: PluginContext): Promise<void> {
+    if (disposed) return; // re-check: dispatch is async, disposal may have raced
     // T1 plugins must use cwd within active pane roots
     const activeDir = await ctx.fileOps.getActiveDirectory();
     const cwd = activeDir ? urlToPath(activeDir) : undefined;
