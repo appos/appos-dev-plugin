@@ -1,20 +1,48 @@
 ---
+name: appos-plugin-dev
 description: >
-  Build plugins for AppOS, the dual-pane macOS workspace manager. Use this
-  skill whenever someone asks about creating, building, testing, or deploying AppOS
-  plugins, or when working in a repo that imports from @appos.space/*. Triggers on:
-  "AppOS plugin", "@appos.space/plugin-types", "registerWebPanel",
-  "pipeShellToWebPanel", "WorkspaceTemplate", "SmartFolder filter", "lifecycle
-  dependencies", "plugin.json minHostVersion", or any of the 22 plugin API namespaces.
-  Also use PROACTIVELY when the user is working with TypeScript files that import from
-  @appos.space/plugin-types or call globalThis.activate with PluginContext.
+  Build plugins for AppOS, the dual-pane macOS workspace manager. Use
+  whenever someone asks about creating, building, testing, or deploying
+  AppOS plugins, or when working in a repo importing from @appos.space/*.
+  Triggers on: "AppOS plugin", "@appos.space/plugin-types", "PluginContext",
+  "actions.register", "ActionExecutionContext", "registerWebPanel",
+  "pipeShellToWebPanel", "WorkspaceTemplate", "extensions[]", "plugin.json
+  minHostVersion", or any ctx.<namespace> plugin API call. Also use
+  PROACTIVELY on TypeScript that imports @appos.space/plugin-types or
+  assigns activate/deactivate onto globalThis.
 ---
 
 # AppOS Plugin Development
 
-Build plugins for AppOS, a dual-pane workspace manager for macOS. Plugins are TypeScript modules compiled to IIFE bundles and executed inside JavaScriptCore (JSC). They receive a typed `PluginContext` object that exposes 22 API namespaces for interacting with the host.
+Build plugins for AppOS, a dual-pane workspace manager for macOS. Plugins
+are TypeScript modules compiled to IIFE bundles executed inside
+JavaScriptCore (JSC). They receive a typed `PluginContext` exposing, as of
+SDK 3.0.0, 43 namespaces — the original host surface (panels, files,
+shell, workspaces) plus the core-plugin platform wave (actions, scheduler,
+notifications, storage, vault, entities, LLM, recipes, ...). The canonical
+reference implementation is **`appos-plugin-ytdlp`** — the flagship yt-dlp
+GUI plugin; when designing anything non-trivial, mirror its patterns.
 
-The canonical reference implementation is **`appos-plugin-ytdlp`** — the flagship yt-dlp GUI plugin. When designing anything non-trivial, mirror its patterns.
+## Reference files (read these early)
+
+Everything enumerable lives in `reference/` — this file teaches the shape,
+the references carry the detail:
+
+- `reference/extension-api.md` — namespace-by-namespace API map,
+  `extensions[]` manifests, the permission-scope model, catalog bundle
+  layout, WebView bridge + CSS tokens.
+- `reference/patterns.md` — canonical patterns (activation ordering,
+  actions, notifications, scheduler, message typing, resume loops).
+- `reference/plugin-api/` — byte-verbatim mirror of the published
+  `@appos.space/plugin-types` d.ts modules. Namespace methods:
+  `grep -rn "interface ActionsAPI" reference/plugin-api/`; all namespaces:
+  `grep -n "readonly" reference/plugin-api/core.d.ts`; permission union:
+  `grep -n "CanonicalPermissionScope" reference/plugin-api/permissions.d.ts`.
+- `reference/migration-2.x-to-3.0.md` — migrating a 2.4.x-era plugin to
+  SDK 3.0.0 (renames, exec-context handlers, token returns, pins).
+
+For a new plugin: read `patterns.md` first, spot-check every API you plan
+to call against the `plugin-api/` mirror.
 
 ## Architecture
 
@@ -23,28 +51,36 @@ TypeScript source
     → esbuild (IIFE, es2020, bundle)
     → dist/main.js
     → JSCore runtime
-    → PluginContext (22 namespaces)
+    → PluginContext (typed namespaces)
     → native SwiftUI  OR  WKWebView with plugin-panel:// scheme
 ```
 
 - Each plugin runs in its own JSC isolate on a serial dispatch queue.
-- No shared state between plugins except through `dataContracts` and `interPluginEvents`.
-- UI has **two rendering modes**, chosen per-panel:
-  - **ViewDescriptor** — declarative JSON tree → native SwiftUI. Use for lightweight sidebars, file-row annotations, toolbars, menu bar popovers.
-  - **WebView panel** — ships HTML/CSS/JS in the plugin bundle, loaded via `plugin-panel://` into a WKWebView. Use for rich UI, streaming progress, media playback, complex forms.
-- **JSC has no DOM, no Node, no browser APIs.** Timers may or may not exist — guard with `typeof setTimeout === 'function'`.
+  Cross-plugin interaction flows through platform surfaces (public actions,
+  the typed event bus, `dataContracts`, shared-store grants) — never
+  shared memory.
+- UI has **two rendering modes**, chosen per-panel: **ViewDescriptor**
+  (declarative JSON tree → native SwiftUI; lightweight sidebars,
+  annotations, toolbars, popovers) or **WebView panel** (HTML/CSS/JS in
+  the bundle via `plugin-panel://`; rich UI, streaming, media, forms).
+- **JSC has no DOM, no Node, no browser APIs.** Timers may or may not
+  exist — guard with `typeof setTimeout === 'function'`.
 
 ## The SDK packages (`@appos.space/*`)
 
-Always depend on the official SDK packages instead of hand-writing types or utilities:
+Always depend on the official SDK packages (3.0.0 line) instead of
+hand-writing types or utilities:
 
 | Package | Purpose | Install |
 |---|---|---|
-| `@appos.space/plugin-types` | TypeScript types for `PluginContext`, manifest, all 22 namespaces, permission scopes, design tokens. Declaration-only, zero runtime. | `devDependency` |
+| `@appos.space/plugin-types` | Types for `PluginContext`, every namespace, manifest, permission scopes, design tokens. Declaration-only, zero runtime. | `devDependency` |
 | `@appos.space/plugin-utils` | Pure helpers: `urlToPath`, `pathToUrl`, `fileExtension`, `formatSize`, `formatDate`, `generateId`, `debounce`, `throttle`, `createActionRouter`. | `dependency` |
-| `@appos.space/view-builders` | Typed helpers (`vstack`, `section`, `listItem`, `button`) that return plain `ViewDescriptor` objects. Zero runtime. | `dependency` |
+| `@appos.space/view-builders` | Typed helpers (`vstack`, `section`, `listItem`, `button`, `encodeMenuActions`) returning plain `ViewDescriptor` objects. | `dependency` |
 
-The plugin-types version `2.4.x` tracks **plugin API** `2.4.x` — it is NOT the host app version. See the *minHostVersion landmine* section below.
+Pin the 3.x line: `"@appos.space/plugin-types": "^3.0.0"` (and siblings).
+The SDK version is NOT the host app version (see the *minHostVersion
+landmine* below), and the README inside the published plugin-types tarball
+is stale — trust the d.ts, not the package README.
 
 ### Mandatory tsconfig flag
 
@@ -54,36 +90,41 @@ Because `@appos.space/plugin-types` is declaration-only, you MUST enable:
 { "compilerOptions": { "verbatimModuleSyntax": true } }
 ```
 
-Without it, `import { PluginContext }` compiles to a runtime import against a no-JS package and the bundler will fail.
+Without it, `import { PluginContext }` compiles to a runtime import against
+a no-JS package and the bundler will fail.
 
-### Importing from the SDK
+### Importing from the SDK — no ambient globals
 
 ```ts
-import type { PluginContext, DependencyStatus, WorkspaceTemplate } from '@appos.space/plugin-types';
-import { urlToPath, formatSize, createActionRouter } from '@appos.space/plugin-utils';
+import type { PluginContext, ActionExecutionContext, WorkspaceTemplate } from '@appos.space/plugin-types';
+import { urlToPath, formatSize } from '@appos.space/plugin-utils';
 import { vstack, section, listItem, button } from '@appos.space/view-builders';
 ```
 
-Use `import type` for everything from `plugin-types`. The other two packages have real runtime exports.
+The SDK ships no ambient globals — `import type` every `plugin-types` name
+you use (TS2304 on an SDK name means you forgot). The other two packages
+have real runtime exports.
 
 ## Plugin entry pattern
 
-The JSC runtime looks up `activate` / `deactivate` on `globalThis` — not as named ESM exports (IIFE format doesn't expose them). Assign at the bottom of `src/main.ts`:
+The JSC runtime looks up `activate` / `deactivate` on `globalThis` — not as
+named ESM exports (IIFE format doesn't expose them). Assign at the bottom
+of `src/main.ts`:
 
 ```ts
 import type { PluginContext } from '@appos.space/plugin-types';
 
+declare function registerDownloadPanel(ctx: PluginContext): Promise<() => void>;
+
 const disposables: Array<() => void | Promise<void>> = [];
 
 async function activate(ctx: PluginContext): Promise<void> {
-    // Register everything. Push every disposer onto disposables[].
+    // Register everything; push every disposer onto disposables[].
     disposables.push(await registerDownloadPanel(ctx));
-    // ...
 }
 
 async function deactivate(): Promise<void> {
-    // Drain in reverse order with per-item try/catch so one bad dispose
-    // never blocks the rest.
+    // Drain in reverse with per-item try/catch — one bad dispose never blocks the rest.
     while (disposables.length) {
         const d = disposables.pop();
         try { await d?.(); } catch (err) { console.error('[plugin] Dispose error:', err); }
@@ -94,298 +135,252 @@ async function deactivate(): Promise<void> {
 ;(globalThis as any).deactivate = deactivate;
 ```
 
-The leading `;` on the globalThis assignments prevents ASI hazards when the preceding statement lacks a semicolon. **Use `ctx` as the parameter name**, not `pluginContext` or `context`.
+The leading `;` on the globalThis assignments prevents ASI hazards. **Use
+`ctx` as the parameter name**, not `pluginContext` or `context`.
 
-## Decision tree: UI needs → API choice
+## Decision tree: need → API
 
-| Need | API | Rendering | Notes |
-|---|---|---|---|
-| Rich forms, streaming progress, media playback | `ctx.ui.registerWebPanel()` | WKWebView | Bundle HTML/CSS/JS under `webview/<panel>/`. Use for yt-dlp-style UIs. |
-| Lightweight sidebar (file annotations, git status, file stats) | `ctx.ui.registerPanel()` | SwiftUI via ViewDescriptor | Cheap, reactive, composes well. |
-| Activity bar icon + sidebar | `ctx.ui.registerActivityView()` | SwiftUI via ViewDescriptor | Use for primary feature entry points. |
-| Menu bar status item (with badge) | `ctx.menubar.register()` / `setBadge()` | NSStatusItem | Subscribe to `menubar.clicked` event to handle clicks. |
-| Multi-pane layout (opening the plugin puts tabs in both panes) | `ctx.workspaces.register()` + `apply()` | Native window layout | Apply unconditionally on every activation. See workspace section below. |
-| File-aware filters (smart folders) | `ctx.smartFolders.registerFilterType()` | Host invokes `evaluate` closure in plugin's JSC | Closures capture plugin state — rebuild lookups on state change via `subscribe()`. |
-| Toast / HUD / alert | `ctx.feedback.toast()` / `.hud()` / `.alert()` | Native AppKit | `notify()` auto-routes: focused→toast, unfocused→HUD, background→system notification. |
-| Keyboard shortcuts | `ctx.shortcuts.register({ commandId, keys })` | — | Must bind to an already-registered `ctx.commands.register()`. |
-| Persistent state (queue, library, history) | `ctx.cache.set(key, value, { persist: true })` | SQLite write-through | Default is memory-only — pass `persist: true` for durability. `cache.get()` returns deserialized values — do NOT `JSON.parse`. |
-| Run a CLI with streaming output | `ctx.ui.pipeShellToWebPanel(panelId, shellOpts)` | Chunks flow into the webview | **Method lives on `ctx.ui`, NOT `ctx.shell`.** Hard 120s timeout — use resume-loops for long jobs. |
-| React to dependency changes | `ctx.lifecycle.onDependencyStatusChanged(fn)` | — | Host pushes status at activation. `getDependencyStatus()` reads on demand; `recheckDependencies()` re-probes (both host-wired). |
+| Need | API | Notes |
+|---|---|---|
+| Expose a capability to the palette, other plugins, or AI agents | `ctx.actions.register()` | The fn-89 action fabric — schema-validated, receipted. See below. |
+| Rich forms, streaming progress, media playback | `ctx.ui.registerWebPanel()` | WKWebView; bundle HTML/CSS/JS under `webview/<panel>/`. |
+| Lightweight sidebar (annotations, status, stats) | `ctx.ui.registerPanel()` | SwiftUI via ViewDescriptor — cheap, reactive. |
+| Activity bar icon + sidebar | `ctx.ui.registerActivityView()` | Primary feature entry points. |
+| Menu bar status item (with badge) | `ctx.menubar.register()` / `setBadge()` / `setContent()` | `setContent` is REQUIRED or the popover says "No content". |
+| Multi-pane layout on open | `ctx.workspaces.register()` + `apply()` | Apply unconditionally on every activation (see below). |
+| Run work on a schedule | `ctx.scheduler.scheduleJob()` | Cron/interval/fsEvents/calendar triggers dispatching a registered action. |
+| Notify the user (routable) | `ctx.notifications.emit()` | User rules pick the channel — never the emitter. |
+| Toast / HUD / alert (always local) | `ctx.feedback.toast()` / `.hud()` / `.alert()` | `notify()` auto-routes by focus state. |
+| Durable, queryable storage | `ctx.store` | Document + KV namespaces; prefer over `cache`/`storage` for real data. |
+| Secrets | `ctx.vault` | Opaque refs; raw material never enters JS. |
+| Persistent small state (queue, prefs) | `ctx.cache.set(key, value, { persist: true })` | `cache.get()` returns deserialized values — do NOT `JSON.parse`. |
+| Run a CLI with streaming output | `ctx.ui.pipeShellToWebPanel(panelId, shellOpts)` | **On `ctx.ui`, NOT `ctx.shell`.** 120s hard cap — resume-loop long jobs. |
+| File-aware filters (smart folders) | `ctx.smartFolders.registerFilterType()` | Synchronous `evaluate` closure; rebuild lookups on state change. |
+| React to dependency changes | `ctx.lifecycle.onDependencyStatusChanged(fn)` | `getDependencyStatus()` reads on demand; `recheckDependencies()` re-probes. |
 
-### Two WebView panels maximum per plugin
+The full namespace surface (resources/tokens/bundles, entities, ledger,
+views, sidecars, input, webhook, LLM, recipes/sequences, ...) is mapped in
+`reference/extension-api.md`.
 
-The host caps WebView panels at **2 per plugin / 6 globally**. If your UI needs more surfaces, use view switching inside a panel or fall back to ViewDescriptor-based panels.
+## Public actions (fn-89) — the platform's front door
 
-### ViewDescriptor quick reference
+Actions are how a plugin exposes typed, schema-validated capabilities.
+Every invocation runs validate → permission → approve → execute → receipt.
+The handler receives ONE argument — the execution context — and reads its
+payload via `exec.input`:
 
-The SDK defines **17 ViewDescriptor types**: `vstack`, `hstack`, `scroll`, `list`, `grid`, `text`, `label`, `image`, `remoteImage`, `badge`, `button`, `listItem`, `textField`, `progress`, `section`, `divider`, `spacer`. Use `@appos.space/view-builders` for typed helpers.
+```ts
+import type { ActionExecutionContext } from '@appos.space/plugin-types';
 
-### WebView Panel Guidance
+type GreetInput = { name: string };
 
-**When to choose WebView over ViewDescriptor:**
-- Rich interactive UI: forms, tables, streaming terminal output, media playback, charts
-- Complex layouts that exceed what `vstack`/`hstack`/`grid` can express
-- Reuse of existing HTML/CSS/JS libraries
-
-**When to use ViewDescriptor instead:**
-- Simple sidebars, file annotations, status displays, settings panels
-- No need for custom styling or complex interaction
-- Lower overhead (no WKWebView process)
-
-**File structure for WebView panels:**
-
+const token = await ctx.actions.register(
+    {
+        id: 'greet',
+        title: 'Greet Someone',
+        inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+        visibility: ['user', 'api', 'agent'],
+        approval: 'auto',
+    },
+    async (exec: ActionExecutionContext) => {
+        // exec: { invocationId, source, input, sourceId? }
+        const input = exec.input as GreetInput;   // assert to a `type`, never an `interface`
+        return { greeting: `Hello, ${input.name}!` };
+    },
+);
+void token; // keep for ctx.actions.unregister(token) on dispose
 ```
-my-plugin/
-  src/main.ts           # registerWebPanel('main-panel', { htmlPath: 'webview/main/index.html' })
-  webview/
-    main/
-      index.html        # Entry point (NO inline <script> or <style> — CSP blocks them)
-      app.js            # External JS loaded via <script type="module" src="app.js">
-      styles.css        # External CSS loaded via <link rel="stylesheet" href="styles.css">
-```
 
-**Message bridge:** Use `window.twopanez.send(msg)` for fire-and-forget messages and `window.twopanez.request(msg)` for request/response. Receive host pushes via `window.twopanez.onMessage(fn)`. Version all messages with `v: 1` and discriminate by `type`.
-
-**CSP constraint:** Inline `<script>` and `<style>` are blocked by Content Security Policy. All JS and CSS must be external files. If the WebView renders blank, check for inline scripts first.
-
-**CSS custom properties:** The host injects `--twopanez-bg`, `--twopanez-text`, `--twopanez-accent`, and 12 other design tokens into every WebView. Use `var(--twopanez-bg)` instead of hardcoded colors. See `extension-api.md` for the full list.
+- `exec.source` is the `InvocationSource` union (`"user" | "plugin" |
+  "agent" | "recipe" | "sequence" | "system"`); `visibility: ['agent']`
+  projects the action to AI agents as a tool — write schema descriptions
+  for an LLM reader. `registerFromCommand(commandId, metadata)` projects
+  an existing command into the catalog.
+- Declare actions in the manifest `extensions[]` too, but ALWAYS pair with
+  the runtime registration — manifest-declared actions don't reach
+  discovery on their own yet (host bug fn-163; see
+  `reference/extension-api.md`). <!-- remove when fn-163 lands -->
+- Scopes: `actions.register` to register, `actions.invoke` to invoke
+  (`actions.invoke.agent` additionally for agent-sourced invokes).
 
 ## WebView panel pattern (rich UI)
 
-Register the panel in `activate()`, passing the bundle-relative path to the HTML:
+Register the panel in `activate()`, passing the bundle-relative path to
+the HTML. Registration and handler methods return tokens — capture them:
 
 ```ts
-ctx.ui.registerWebPanel('download', {
+const panelToken = ctx.ui.registerWebPanel('download', {
     title: 'Downloads',
     icon: 'arrow.down.circle',
     htmlPath: 'webview/download/index.html',
     allowNavigation: false,
 });
-
-ctx.ui.onWebPanelMessage('download', (envelope) => {
-    const msg = envelope.data;  // unknown — validate before routing
-    // Route msg.type to handlers...
-});
+void panelToken; // → ctx.ui.unregister(panelToken) in your disposer
 ```
 
-The `htmlPath` resolves **relative to the plugin root at runtime**, so the `webview/` tree MUST ship with the installed plugin (do not exclude it from rsync). All JS/CSS must be external files — CSP blocks inline `<script>` and `<style>`.
+Receive messages with `ctx.ui.onWebPanelMessage(panelId, handler)`
+(envelope `{ data, instanceId, windowId, paneId }`; `data` is unknown —
+validate before routing); request/response via `onWebPanelRequest`. The
+`htmlPath` resolves **relative to the plugin root at runtime**, so the
+`webview/` tree MUST ship with the installed plugin. CSP blocks inline
+`<script>`/`<style>` — external files only. Max 2 WebView panels per
+plugin, 6 globally.
 
-### Webview-side bridge
+### Webview-side bridge (`window.twopanez`)
 
-The host injects `window.twopanez` into every plugin webview with this shape:
+The host injects `window.twopanez` into every plugin webview: `send(msg)`
+(fire-and-forget → `onWebPanelMessage`), `request(msg)` (request/response →
+`onWebPanelRequest`), `onMessage(fn)` (inbound pushes), plus `instanceId`,
+`windowId`, `paneId`. Webview code ships as plain `.js`; for typed WebView
+TypeScript, add the ambient declaration from `reference/extension-api.md`
+("WebView-side bridge") as `webview/twopanez.d.ts`. Wrap the bridge in a
+thin `bridge.js` per plugin (see `appos-plugin-ytdlp/webview/shared/bridge.js`
+for the canonical split of protocol messages vs shell chunks).
 
-```ts
-window.twopanez.send(msg)        // fire-and-forget → onWebPanelMessage
-window.twopanez.request(msg)     // request/response → onWebPanelRequest
-window.twopanez.onMessage(fn)    // inbound push from postToWebPanel
-window.twopanez.instanceId       // per-WKWebView UUID (multi-instance isolation)
-window.twopanez.windowId         // app window ID
-window.twopanez.paneId           // "left" | "right"
-```
-
-Wrap this in a thin `bridge.js` module per plugin (see `appos-plugin-ytdlp/webview/shared/bridge.js` for the canonical pattern, including how to split "protocol messages" from "shell chunks" into separate listener buckets).
+Push plugin→webview with `ctx.ui.postToWebPanel(panelId, message)` (all
+active instances; max 1MB; `{ instanceId }` targets one). Version every
+message (`v: 1`), discriminate by `type`, drop malformed inbound at the
+bridge — typed union + `parseInbound` narrowing (`reference/patterns.md` §7).
 
 ### pipeShellToWebPanel (direct CLI → WebView streaming)
 
-This is the superpower that makes CLI-wrapping plugins possible. The host spawns the process, streams `{ stream: "stdout"|"stderr", data, bytesTotal }` chunks directly to every WKWebView instance of the panel, and returns a final `ShellExecuteResult`:
+The host spawns the process, streams `{ stream, data, bytesTotal }` chunks
+directly to every WKWebView instance of the panel, and returns a final
+`ShellExecuteResult`:
 
 ```ts
+declare const url: string;
+declare const outputDir: string;
+
 const result = await ctx.ui.pipeShellToWebPanel('download', {
     command: 'yt-dlp',
     args: ['--ignore-config', '--newline', url],
     cwd: outputDir,           // T1 (contained) tier REQUIRES absolute cwd
     timeout: 119,             // host hard-caps at 120s; leave headroom
 });
+console.log(result.exitCode);
 ```
 
-**Critical gotchas:**
-- `ctx.ui.pipeShellToWebPanel`, not `ctx.shell.pipeShellToWebPanel`. Some older docs are wrong.
-- Still subject to the 120s cap — long-running jobs need a resume loop with `--continue`-style flags.
-- Shell chunks arrive via `window.twopanez.onMessage()` **alongside** `postToWebPanel` messages, so filter them in the bridge (chunks have `{stream, data}` without `v`/`type`).
-- Always pass `cwd` as an expanded absolute path — T1 sandbox rejects `~` and relative paths.
-- Always pass `--ignore-config` (or equivalent) to CLIs that read ambient user config, so users' `~/.config/<tool>/config` can't inject flags that bypass your validation.
-
-### postToWebPanel (plugin → webview push)
-
-```ts
-ctx.ui.postToWebPanel('download', {
-    v: 1,
-    type: 'queue-update',
-    entries: state.getQueue(),
-});
-```
-
-Always version your messages (`v: 1`) and discriminate by `type`. Drop malformed inbound messages at the webview bridge (protocol guard). The ytdlp plugin uses a typed `PanelInboundMessage` discriminated union + a `parseInbound` function to narrow — adopt that pattern for any non-trivial panel.
+**Critical gotchas:** it lives on `ctx.ui`, NOT `ctx.shell`; the 120s cap
+still applies (long jobs need a `--continue`-style resume loop); shell
+chunks arrive via `window.twopanez.onMessage()` **alongside**
+`postToWebPanel` messages — filter in the bridge (chunks have
+`{stream, data}` and no `v`/`type`); `cwd` must be an expanded absolute
+path (T1 rejects `~` and relative); always pass `--ignore-config` (or
+equivalent) so ambient user config can't inject flags.
 
 ## ViewDescriptor pattern (lightweight native UI)
 
-For simple panels, skip the WebView entirely and ship a ViewDescriptor tree. Use `@appos.space/view-builders` for ergonomics:
+For simple panels, skip the WebView and ship a ViewDescriptor tree:
 
 ```ts
-import { vstack, section, listItem, button, hstack, spacer } from '@appos.space/view-builders';
+import { vstack, section, listItem, button } from '@appos.space/view-builders';
+
+declare const fileCount: number;
 
 ctx.ui.registerPanel('stats', {
     title: 'File Stats',
     icon: 'chart.bar',
     priority: 100,
     view: vstack([
-        section('Summary', { icon: 'doc.on.doc', badge: String(total) }, [
+        section('Summary', { icon: 'doc.on.doc', badge: String(fileCount) }, [
             listItem('Files', { icon: 'doc', subtitle: `${fileCount}` }),
-            listItem('Total size', { icon: 'shippingbox', subtitle: formatSize(totalBytes) }),
         ]),
-        hstack([
-            button('Refresh', { action: 'refresh' }),
-            spacer(),
-        ]),
+        button('Refresh', { action: 'refresh' }),
     ]),
-    handler: (action) => { /* route action strings */ },
+    handler: (action) => { void action; /* route action strings */ },
 });
 ```
 
-Call `registerPanel` with the same ID to replace the view reactively.
+Call `registerPanel` with the same ID to replace the view reactively. The
+SDK defines **17 ViewDescriptor types** (`vstack`, `hstack`, `scroll`,
+`list`, `grid`, `text`, `label`, `image`, `remoteImage`, `badge`, `button`,
+`listItem`, `textField`, `progress`, `section`, `divider`, `spacer`).
 
 ### menuActions on listItem
 
-Context menus are the #1 UX pattern for ViewDescriptor lists. The value MUST be a JSON string (not an object):
-
-```ts
-import { encodeMenuActions } from '@appos.space/view-builders';
-
-listItem(entry.title, {
-    icon: 'video',
-    action: 'open:' + entry.id,
-    menuActions: encodeMenuActions([
-        { title: 'Open',   icon: 'arrow.up.forward.app', action: 'open:' + entry.id },
-        { title: 'Reveal', icon: 'magnifyingglass',       action: 'reveal:' + entry.id },
-        { title: '---' },
-        { title: 'Delete', icon: 'trash', action: 'delete:' + entry.id, destructive: true },
-    ]),
-});
-```
-
-Actions are plain strings routed through the panel `handler`. Use short semantic prefixes: `open:`, `reveal:`, `delete:`, `select:` — not verbose `open-collection:` or `delete-entry:`.
+Context menus are the #1 UX pattern for ViewDescriptor lists. The
+`menuActions` value MUST be a JSON string (not an array) — build it with
+`encodeMenuActions([...])` from `@appos.space/view-builders` (dividers:
+`{ title: '---' }`; destructive entries last, with `destructive: true`).
+Actions are plain strings routed through the panel `handler` — short
+semantic prefixes (`open:`, `reveal:`, `delete:`). Worked example:
+`reference/patterns.md` §16. That `(action: string) => void` handler shape
+is `plugin-utils`' `ActionHandler` — unrelated to fn-89 action handlers.
 
 ## WorkspaceTemplate (dual-pane layouts)
 
-Workspaces register an entire window layout and can be applied with one call. Use this to give your plugin a "canonical UI" users can open in one click.
+Workspaces register an entire window layout applied with one call — your
+plugin's "canonical UI":
 
 ```ts
-import type { WorkspaceTemplate } from '@appos.space/plugin-types';
-
 await ctx.workspaces.register({
     schemaVersion: 1,
     id: 'ytdlp-dual-pane',
     name: 'yt-dlp Downloader',
     // source is auto-stamped by register() — do not pass it manually
     leftPane: {
-        tabs: [
-            { type: 'pluginPanel', panelId: 'download' },
-            { type: 'terminal' },
-        ],
+        tabs: [{ type: 'pluginPanel', panelId: 'download' }, { type: 'terminal' }],
         activeTab: 0,
     },
     rightPane: {
-        tabs: [
-            { type: 'pluginPanel', panelId: 'library' },
-            { type: 'fileBrowser', path: outputDir },
-            { type: 'webBrowser' },
-        ],
+        tabs: [{ type: 'pluginPanel', panelId: 'library' }, { type: 'fileBrowser' }],
         activeTab: 0,
     },
 });
 ```
 
-**Apply unconditionally on every activation** — NOT gated on a first-run cache flag. `activate()` only runs once per host launch, so calling `ctx.workspaces.apply('ytdlp-dual-pane')` at the end of activation is effectively once-per-launch. This is the only reliable way to guarantee the user sees your plugin's UI.
+**Apply unconditionally on every activation** — NOT gated on a first-run
+cache flag. `activate()` runs once per host launch, so `apply(...)` at the
+end of activation is effectively once-per-launch, and it is the only
+reliable way to guarantee the user sees your plugin's UI.
 
-> **GOTCHA — `apply()` silently returns `false` when no browser window is focused**
->
-> `workspaces.apply()` returns `Promise<boolean>`. It returns `false` (not an error) if no browser window is frontmost — e.g. when the plugin activates from the Settings sheet via "Retry" or "Enable". Always add a `showPaneTab()` fallback:
-> ```ts
-> const applied = await ctx.workspaces.apply(WORKSPACE_ID).catch(() => false);
-> if (!applied) {
->     try { ctx.ui.showPaneTab('my-panel', { title: 'My Panel', pane: 'left' }); } catch { /* ok */ }
-> }
-> ```
+> **GOTCHA** — `apply()` resolves `false` (not an error) when no browser
+> window is focused, e.g. activation from the Settings sheet. Always fall
+> back: `if (!applied) ctx.ui.showPaneTab('download', { pane: 'left' })`.
 
-> **LANDMINE — do not gate workspace apply behind `applyIfFirstRun` / `cache.get('initialized')`**
->
-> Cache-flag gating (`if (await ctx.cache.get('initialized')) return;`) causes a silent "plugin installed but invisible" bug on every launch after the first. The workspace dropdown is easy to miss, the command palette requires knowing exact names, and the menubar NSStatusItem is a single small icon — none of those are reliable discovery paths. Always apply the workspace unconditionally; the user can still switch to a different workspace after activation and you won't override them until next launch. This is what `appos-plugin-ytdlp` does at Step 11 of `activate()`.
+> **LANDMINE** — do not gate workspace apply behind
+> `cache.get('initialized')`. Cache-flag gating causes a silent "plugin
+> installed but invisible" bug on every launch after the first. Apply
+> unconditionally; the user can still switch workspaces afterward.
 
-**Panel-open commands**: `ctx.ui.showPaneTab(panelId, options?)` focuses an existing tab if present, or creates a new tab in the target pane if none exists. For simple panel-open commands, `showPaneTab` alone is sufficient. Use `workspaces.apply()` before `showPaneTab` when the command depends on the plugin's full canonical dual-pane layout (e.g., download panel left + library right).
-
-```ts
-ctx.commands.register('open-download-panel', {
-    title: 'Open yt-dlp Downloader',
-    handler: async () => {
-        // Apply workspace first when you need the full dual-pane layout
-        try { await ctx.workspaces.apply('ytdlp-dual-pane'); } catch (err) { console.warn(err); }
-        try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* workspace apply already surfaced the panel */ }
-    },
-});
-```
-
-**Re-register on settings change**: for paths that depend on settings (like `fileBrowser.path`), subscribe via `ctx.settings.onKeyChange()` and call `workspaces.register()` again with the updated template. `register()` returns `Promise<string>` (the workspace ID).
+**Re-register on settings change**: subscribe via
+`ctx.settings.onKeyChange()` and call `workspaces.register()` again with
+the updated template (`register()` returns `Promise<string>`). Full
+pattern incl. panel-open commands: `reference/patterns.md` §10.
 
 ## Menu bar
 
-```ts
-await ctx.menubar.register({ icon: 'arrow.down.circle' });
-await ctx.menubar.setBadge(activeCount);  // 0 clears
-
-// REQUIRED: set popover content — without this, clicking the icon shows "No content"
-await ctx.menubar.setContent(vstack([
-    section('Downloads', { icon: 'arrow.down.circle', badge: String(activeCount) }, [
-        listItem('Active downloads', { icon: 'arrow.down', subtitle: `${activeCount} in progress` }),
-    ]),
-    button('Open Dashboard', { action: 'open-dashboard' }),
-]));
-
-const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
-    await ctx.workspaces.apply('ytdlp-dual-pane');
-});
-// Cleanup: ctx.events.unsubscribe(clickToken)
-```
-
-`ctx.menubar.register({ icon, label? })` creates the NSStatusItem. **You MUST call `ctx.menubar.setContent(viewDescriptor)` to populate the popover** — without it, clicking the icon opens a popover that says "No content". Drive both `setBadge` and `setContent` from your state `subscribe()` so they stay reactive. Cleanup order: unsubscribe state → `ctx.events.unsubscribe(clickToken)` → `ctx.menubar.remove()`. Guard every step with try/catch so one failure can't block the next.
-
-> **GOTCHA — "No content" popover**
->
-> The host always shows a popover when the menubar icon is clicked. If `setContent()` was never called, the popover displays "No content". This is easy to miss because `register()` + `setBadge()` + `menubar.clicked` all work fine without it — only the visual popover is empty. Always call `setContent()` after `register()` and update it reactively.
+`ctx.menubar.register({ icon })` creates the NSStatusItem; `setBadge(n)`
+updates the badge (0 clears). **You MUST call `ctx.menubar.setContent(view)`
+with a ViewDescriptor** — without it, clicking the icon shows a "No
+content" popover (easy to miss: register/badge/click events all work
+without it). Handle clicks via `ctx.events.subscribe('menubar.clicked',
+handler)` (token → `ctx.events.unsubscribe`). Drive `setBadge` +
+`setContent` reactively from your state subscriber; full pattern:
+`reference/patterns.md` §11.
 
 ## Smart folder filters
 
-Filter types let you contribute to Smart Folders. The `evaluate` callback is **synchronous** and invoked from the host in your plugin's JSC isolate, which means closures capture plugin state directly.
-
-```ts
-// Rebuild lookup tables on every state change...
-let favoritesByUrl = new Map<string, boolean>();
-const unsubState = subscribe(() => {
-    favoritesByUrl = new Map(library.map(e => [e.fileUrl, e.favorite]));
-});
-
-await ctx.smartFolders.registerFilterType({
-    id: 'favorites',           // auto-prefixed with `{pluginId}.filter.`
-    displayName: 'Favorites',
-    evaluate: (item: { url: string; metadata: Record<string, unknown> }) =>
-        favoritesByUrl.get(item.url) === true,
-});
-```
-
-`registerFilterType` returns `Promise<string>` (the namespaced ID). There is no `unregisterFilterType` — filters auto-clean on plugin deactivation. Set a `disposed` flag in the closure so any late `evaluate` calls return `false` safely.
+`ctx.smartFolders.registerFilterType({ id, displayName, evaluate })`
+contributes a filter to Smart Folders. The `evaluate` callback is
+**synchronous**, runs in your JSC isolate per item `{ url, metadata }`,
+and must be cheap — build lookup Maps on state change and capture them in
+the closure. Returns `Promise<string>` (id auto-prefixed
+`{pluginId}.filter.`). No `unregisterFilterType` — filters auto-clean on
+deactivation; a `disposed` flag guards late calls
+(`reference/patterns.md` §12).
 
 ## Lifecycle + dependency management
 
-Declare system/plugin dependencies in `plugin.json.dependencies`. The host probes them at activation and pushes status via `ctx.lifecycle.onDependencyStatusChanged`:
-
-```ts
-// Subscribe early so you never miss the initial status push at activation
-const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
-    // DependencyStatus[]: { name, type, required, satisfied, state, installedVersion, installHint, ... }
-    // Update UI banner, resume paused work if deps just became available
-});
-```
-
-`ctx.lifecycle.getDependencyStatus()` (on-demand read) and `ctx.lifecycle.recheckDependencies()` (force a re-probe, e.g. after the user installs a missing CLI) are host-wired and safe to call — `appos-plugin-ytdlp` calls both in production. Canonical ordering (see `appos-plugin-ytdlp/src/main.ts` step 9): subscribe with `onDependencyStatusChanged` FIRST, then do the initial `getDependencyStatus()` read, so you can never miss an update between the read and the subscription.
+Declare system/plugin dependencies in `plugin.json.dependencies`; the host
+probes them at activation. Subscribe with
+`ctx.lifecycle.onDependencyStatusChanged(handler)` FIRST, then do the
+initial `getDependencyStatus()` read — no update can slip between them.
+`recheckDependencies()` forces a re-probe (wire it to a "Re-check"
+button). All three are host-wired and safe to call. Show a degraded banner
+with the `installHint` when a required dep is missing — don't refuse to
+load. Full pattern: `reference/patterns.md` §13 + §23.
 
 ## plugin.json manifest
 
@@ -397,162 +392,115 @@ const token = ctx.lifecycle.onDependencyStatusChanged((statuses) => {
     "runtime": "javascript",
     "entrypoint": "dist/main.js",
     "minHostVersion": "1.0.0",
-    "author": "Me",
-    "description": "What it does.",
-    "license": "MIT",
     "activation": { "events": ["onStartup"] },
     "permissions": [
         "ui.webPanel",
-        "shell.execute",
-        "filesystem.read",
+        { "scope": "shell.execute", "reason": "Runs yt-dlp to download media you request" },
         "filesystem.write",
         "cache",
         "feedback"
     ],
     "shellCommands": ["yt-dlp", "ffmpeg"],
-    "scope": "app",
-    "dependencies": {
-        "system": [
-            {
-                "name": "yt-dlp",
-                "required": true,
-                "check": { "command": "yt-dlp", "args": ["--version"], "versionPattern": "(\\d{4}\\.\\d{2}\\.\\d{2})" },
-                "minVersion": "2024.08.06",
-                "installHint": "brew install yt-dlp"
-            }
-        ]
-    },
-    "settings": [
-        { "key": "outputDir", "label": "Download Directory", "type": "string", "default": "" }
-    ]
+    "settings": [{ "key": "outputDir", "label": "Download Directory", "type": "string", "default": "" }]
 }
 ```
 
-**Plugin ID conventions:**
-- Flagship / first-party plugins: `space.appos.<name>` (e.g., `space.appos.ytdlp`)
-- Community plugins: `com.community.<name>`
-- Never use host-internal prefixes like `space.appos.core.*` (reserved).
+**Plugin ID conventions:** flagship `space.appos.<name>`; community
+`com.community.<name>`; never host-reserved `space.appos.core.*`.
+
+Two manifest families live in `reference/extension-api.md`: `extensions[]`
+(manifest-declarative core-plugin contributions — qualified-id grammar,
+per-EP payloads, fn-163 dual-registration caveat for actions) and
+`dependencies` (system binaries + plugin deps; full example:
+`reference/patterns.md` §23).
 
 ### minHostVersion LANDMINE
 
-`minHostVersion` is compared against the host app's `CFBundleShortVersionString` (e.g., `1.0.0` for `/Applications/AppOS.app`), **NOT** the `@appos.space/plugin-types` SDK version (`2.4.x`). Conflating them causes silent plugin load failures — `DependencyResolver` emits `hostVersionTooLow` and the plugin never appears in the Settings sheet.
-
-- Default to `"1.0.0"` unless you know you need a newer host.
-- Check the real host version with `defaults read /Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString`.
-- If a plugin doesn't appear after install + restart, CHECK THIS FIRST.
+`minHostVersion` is compared against the host app's
+`CFBundleShortVersionString` (e.g. `1.0.0` for `/Applications/AppOS.app`),
+**NOT** the SDK version. Conflating them causes silent load failures — the
+host emits `hostVersionTooLow` and the plugin never appears in Settings.
+Default to `"1.0.0"`; check the real host version with `defaults read
+/Applications/AppOS.app/Contents/Info.plist CFBundleShortVersionString`.
+If a plugin doesn't appear after install + restart, CHECK THIS FIRST.
 
 ### Permissions
 
-Permission scopes (see API comments in `plugin-api.d.ts` for per-namespace requirements). Only request what you use. Common ones:
-
-- `ui.webPanel` + `webview` — register WebView panels (BOTH required for `registerWebPanel`)
-- `ui.sidebar` — register sidebar panels (required for `registerPanel`)
-- `ui.contextMenu` — contribute to right-click menus
-- `ui.notifications` — legacy `ctx.ui.showNotification()` (NOT for `ctx.feedback`)
-- `ui.shortcuts` — keyboard shortcuts
-- `shell.execute` — run CLIs (must also list binary names in `shellCommands`)
-- `filesystem.read`, `filesystem.write` — file ops via `fileOps`
-- `clipboard.read`, `clipboard.write` — clipboard access
-- `feedback` — `ctx.feedback.toast()`, `.hud()`, `.notify()`, `.systemNotification()`
-- `feedback.confirm` — `ctx.feedback.alert()` (blocking modal)
-- `network.outbound` — `ctx.network.fetch()` / `.download()` (also list domains in `networkDomains`)
-- `network.unrestricted` — unrestricted network access (no domain allowlist)
-- `cache`, `workspaces`, `menubar`, `menubar.globalShortcut`
-- `ui.toolbar` — toolbar contributions
-- `ui.settings` — settings tab contributions
-- `ui.webPanel` also gates `pipeShellToWebPanel` (combined with `shell.execute`)
-
-The full list is documented in API comments throughout `reference/plugin-api.d.ts`.
+Request only what you use, optionally as `{ scope, reason }` (shown in
+the approval UI). Common scopes: `ui.webPanel` (also gates
+`pipeShellToWebPanel` with `shell.execute`), `ui.sidebar`, `shell.execute`
+(+ `shellCommands` allowlist), `filesystem.read`/`write`,
+`network.outbound` (+ `networkDomains`), `cache`, `feedback`,
+`workspaces`, `menubar`, `actions.register`, `actions.invoke`,
+`scheduler.job.own`, `notifications.emit`, `store.namespace.own`. The
+complete union (135 canonical permission scopes as of SDK 3.0.0, plus
+deprecated legacy aliases like `webview` and `network.fetch`) lives in
+`reference/plugin-api/permissions.d.ts`; grouped walkthrough:
+`reference/extension-api.md`.
 
 ## Build
 
-Use esbuild via a `build.mjs` script, not raw flags — this is the pattern used by `appos-plugin-ytdlp` and it supports watch mode cleanly:
-
-```js
-// build.mjs
-import { build, context } from 'esbuild';
-
-const isWatch = process.argv.includes('--watch');
-
-const opts = {
-    entryPoints: ['src/main.ts'],
-    bundle: true,
-    format: 'iife',
-    platform: 'browser',
-    target: 'es2020',
-    outfile: 'dist/main.js',
-    sourcemap: true,
-    logLevel: 'info',
-};
-
-if (isWatch) {
-    const ctx = await context(opts);
-    await ctx.watch();
-    console.log('Watching for changes...');
-} else {
-    await build(opts);
-}
-```
-
-```json
-// package.json scripts
-{
-    "scripts": {
-        "build": "node build.mjs",
-        "watch": "node build.mjs --watch",
-        "typecheck": "tsc --noEmit"
-    }
-}
-```
-
-**Required esbuild flags**: `format: 'iife'`, `target: 'es2020'`, `bundle: true`. ESM will NOT load in JSC.
+Use esbuild via a `build.mjs` script, not raw flags (full script:
+`reference/patterns.md` §17). **Required options**: `format: 'iife'`,
+`target: 'es2020'`, `bundle: true`, `platform: 'browser'`,
+`outfile: 'dist/main.js'` — ESM will NOT load in JSC. Pair with the
+mandatory tsconfig (`reference/patterns.md` §18): `strict`, `noEmit`,
+`verbatimModuleSyntax`, `moduleResolution: "bundler"`.
 
 ## Deploy
 
-Install to the user plugin directory `~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`:
+Install to the user plugin directory
+`~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`:
 
 ```bash
 rsync -av --delete --delete-excluded \
-  --exclude='.DS_Store' --exclude='.git/' --exclude='.gitignore' \
-  --exclude='node_modules/' --exclude='src/' --exclude='scripts/' \
-  --exclude='*.test.ts' --exclude='build.mjs' --exclude='tsconfig.json' \
-  --exclude='package.json' --exclude='package-lock.json' \
-  --exclude='CLAUDE.md' --exclude='AGENTS.md' --exclude='SPEC.md' \
-  --exclude='types/' --exclude='dist/main.js.map' \
+  --exclude='.DS_Store' --exclude='.git/' --exclude='node_modules/' \
+  --exclude='src/' --exclude='scripts/' --exclude='*.test.ts' \
+  --exclude='build.mjs' --exclude='tsconfig.json' --exclude='package.json' \
+  --exclude='package-lock.json' --exclude='types/' --exclude='dist/main.js.map' \
   ./ "$HOME/Library/Application Support/AppOS/plugins/$PLUGIN_ID/"
 ```
 
-**Critical flags:**
-- `--delete` removes files on dest that are absent on source.
-- `--delete-excluded` removes files matching `--exclude` patterns on dest. **Without it**, files you added to `--exclude` stay on dest forever if they were copied on a previous deploy — this bit us during the ytdlp ship.
-- Ship `dist/main.js`, `plugin.json`, `webview/`, `assets/`, `README.md`, `LICENSE`, `CHANGELOG.md`. Exclude `src/`, tests, build config, dev docs, `.flow/`, `.git/`.
-
-Then restart AppOS to pick up the new plugin (plugins are loaded at startup).
+`--delete-excluded` removes files matching `--exclude` patterns that a
+previous deploy already copied — without it they linger forever. Ship
+`dist/main.js`, `plugin.json`, `webview/`, `assets/`; exclude sources,
+tests, build config (full list: `reference/patterns.md` §19). Then restart
+AppOS (plugins load at startup). **Publishing to the catalog** uses a
+different zip layout (root `manifest.json` + `appos/runtime/plugin.json`)
+— a dev-layout bundle is NOT publishable as-is; see "Catalog bundle
+layout" in `reference/extension-api.md`.
 
 ## Critical constraints (the gotchas that bite)
 
-- **IIFE only** — `format: 'iife'`. ESM will not load in JSC.
-- **`globalThis.activate` / `deactivate`** — not ESM exports. The runtime looks them up on globalThis.
-- **Use `ctx` as the parameter name** — enforced convention in AppOS plugins.
-- **`verbatimModuleSyntax: true`** is mandatory when using `@appos.space/plugin-types`.
+- **IIFE only** (`format: 'iife'`); **`globalThis.activate` /
+  `deactivate`**, not ESM exports; **use `ctx` as the parameter name**.
+- **`verbatimModuleSyntax: true`** is mandatory; **no ambient globals in
+  3.0.0** — `import type` every SDK name (TS2304 means you forgot).
+- **Action handlers get `exec`, not raw input** — read `exec.input`; assert
+  it to a `type` alias, never an `interface` (TS2352).
+- **Registration methods return tokens** — capture them for disposal.
 - **`ctx.ui.pipeShellToWebPanel`**, not `ctx.shell.pipeShellToWebPanel`.
-- **120-second shell cap** — `ctx.shell.execute` (and `pipeShellToWebPanel`) hard-limit at 120s. Long jobs need a resume loop.
-- **`cwd` is required** for shell execution in T1 (contained) tier. Must be an absolute expanded path — no `~`.
+- **120-second shell cap** on `ctx.shell.execute` and
+  `pipeShellToWebPanel`; long jobs need a resume loop. **`cwd` is
+  required** for T1 shell execution — absolute expanded path, no `~`.
 - **Max 2 WebView panels per plugin, 6 globally.**
-- **Cache returns deserialized values** — no `JSON.parse` on `cache.get()`. Pass `{ persist: true }` on `cache.set()` for durability.
-- **`process.terminate()` only signals direct child** — subprocesses (e.g., ffmpeg spawned by yt-dlp) orphan on cancel.
-- **No DOM/Node APIs in main.js** — only webviews have a DOM. Guard any timer usage with `typeof setTimeout === 'function'`.
-- **Webview CSP blocks inline JS/CSS** — everything must be external files loaded via `<script type="module">` / `<link rel="stylesheet">`. Content is served via `plugin-panel://`.
-- **`--ignore-config`** or equivalent on every wrapped CLI invocation — neutralize ambient user config that could inject dangerous flags.
-- **`minHostVersion` is the HOST version**, NOT the SDK version. Default to `"1.0.0"`.
-- **Host does not expose `unregisterFilterType`** — smart folder filters auto-clean on unload. Use a `disposed` flag guard.
+- **Cache returns deserialized values** — no `JSON.parse` on `cache.get()`;
+  pass `{ persist: true }` for durability.
+- **`process.terminate()` only signals the direct child** — subprocesses
+  orphan on cancel.
+- **No DOM/Node APIs in main.js** — only webviews have a DOM; guard timers
+  with `typeof setTimeout === 'function'`. **Webview CSP blocks inline
+  JS/CSS** — external files only, served via `plugin-panel://`.
+- **`--ignore-config`** (or equivalent) on every wrapped CLI invocation.
+- **`minHostVersion` is the HOST version**, NOT the SDK version — default
+  `"1.0.0"`.
+- **No `unregisterFilterType`** — smart folder filters auto-clean; use a
+  `disposed` flag guard.
 - **Install path**: `~/Library/Application Support/AppOS/plugins/$PLUGIN_ID/`.
 
-## Reference files
+## Migrating a 2.x plugin
 
-For the full API, read these in `reference/`:
-- `plugin-api.d.ts` — Live TypeScript type definitions synced from `@appos.space/plugin-types` (~2950 lines, 22 namespaces).
-- `patterns.md` — Canonical patterns extracted from `appos-plugin-ytdlp` (activation ordering, disposable tracking, message typing, resume loops, multi-instance isolation).
-- `extension-api.md` — Human-readable API walkthrough for namespaces, manifest fields, and permissions.
-
-When starting a new plugin, always read `patterns.md` and spot-check `plugin-api.d.ts` against any API you plan to call — the host is still evolving and the SDK version you're compiling against may lag runtime.
+Renamed namespace types (`<Name>API` everywhere), exec-context action
+handlers, token-returning registrations, no ambient globals, `interface` →
+`type` for `exec.input` assertions, `^3.0.0` pins — full walkthrough with
+before/after examples: `reference/migration-2.x-to-3.0.md`.
