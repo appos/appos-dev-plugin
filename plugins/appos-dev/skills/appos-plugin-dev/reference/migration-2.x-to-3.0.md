@@ -25,7 +25,7 @@ break classes. Work through them in order.
 1. Rename every namespace type to its `<Name>API` spelling (table below).
 2. Import every SDK type — 3.0.0 ships **no ambient globals**.
 3. Action handlers now receive an **execution context** — read input via `exec.input`.
-4. `registerWebPanel` / `onWebPanelMessage` / `onWebPanelRequest` return **string tokens** — capture them.
+4. `registerWebPanel` / `onWebPanelMessage` / `onWebPanelRequest` return **string tokens** — capture them (panel ids are disposable via `ctx.ui.unregister`; handler tokens are diagnostics-only).
 5. Change `interface` → `type` for anything you assert `exec.input` (or other `AnyJSONValue`) to.
 6. Bump dependency pins `^2.4.0` → `^3.0.0` — and ignore the stale README inside the 3.0.0 tarball.
 
@@ -162,11 +162,21 @@ ctx.ui.registerWebPanel('download', { title: 'Downloads', htmlPath: 'webview/dow
 ctx.ui.onWebPanelMessage('download', handleMessage);
 ```
 
-3.0.0 types what the host actually returns: a registration id / handler
-token (`string`). This is **silently non-breaking at runtime** — your old
-code keeps working — but every uncaptured token is a registration you can
-never dispose deterministically, which leaks across deactivate/activate
-cycles. Capture the tokens and thread them into your disposable tracking:
+3.0.0 types what the host actually returns: a `string`. This is
+**silently non-breaking at runtime** — your old code keeps working — but
+the two token kinds have DIFFERENT disposal semantics:
+
+- `registerWebPanel` returns a **slot-based registration id**. Uncaptured,
+  the panel registration cannot be disposed deterministically and leaks
+  across deactivate/activate cycles. Capture it and thread
+  `ctx.ui.unregister(panelToken)` into your disposable tracking.
+- `onWebPanelMessage` / `onWebPanelRequest` return **handler tokens** with
+  NO unregister path — `ctx.ui.unregister` accepts only slot-based
+  contribution ids (panels, toolbar/status items), not handler tokens.
+  Capture them for identification/debugging; actual disposal is a
+  `disposed` flag guard inside the handler closure plus host cleanup on
+  plugin deactivation. (One handler per panelId — re-registering replaces
+  the previous one.)
 
 ```ts
 const disposables: Array<() => void | Promise<void>> = [];
@@ -175,13 +185,15 @@ const panelToken = ctx.ui.registerWebPanel('download', {
     title: 'Downloads',
     htmlPath: 'webview/download/index.html',
 });
-disposables.push(() => ctx.ui.unregister(panelToken));
+disposables.push(() => ctx.ui.unregister(panelToken)); // slot id → disposable
 
+let disposed = false;
 const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
+    if (disposed) return;               // the real disposal mechanism
     // envelope: { data, instanceId, windowId, paneId }
 });
-void messageToken; // one handler per panelId — re-registering replaces it;
-                   // keep the token for symmetry and debugging.
+void messageToken;                      // diagnostics only — no unregister API
+disposables.push(() => { disposed = true; });
 ```
 
 ## 5. `interface` → `type` for `exec.input` assertion targets

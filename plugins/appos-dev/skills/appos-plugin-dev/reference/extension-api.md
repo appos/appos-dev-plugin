@@ -685,7 +685,9 @@ scheme. Permission: `ui.webPanel`. Limits: max 2 WebView panels per plugin,
 6 globally.
 
 The 5 APIs on `ctx.ui` (all registration/handler methods return string
-tokens as of SDK 3.0.0 — capture them; see `migration-2.x-to-3.0.md` §4):
+tokens as of SDK 3.0.0 — capture them; panel registration ids dispose via
+`ctx.ui.unregister`, handler tokens are diagnostics-only with no
+unregister API; see `migration-2.x-to-3.0.md` §4):
 
 1. **`registerWebPanel(id, options)`** → registration id. `WebPanelOptions`:
    `title` (required), `htmlPath` (required, relative to plugin root, no

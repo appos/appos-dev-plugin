@@ -206,7 +206,9 @@ void token; // keep for ctx.actions.unregister(token) on dispose
 ## WebView panel pattern (rich UI)
 
 Register the panel in `activate()`, passing the bundle-relative path to
-the HTML. Registration and handler methods return tokens — capture them:
+the HTML. Registration and handler methods return tokens — capture them
+(panel ids are disposable via `ctx.ui.unregister`; handler tokens are
+diagnostics-only — no handler-unregister API exists):
 
 ```ts
 const panelToken = ctx.ui.registerWebPanel('download', {
@@ -478,7 +480,9 @@ layout" in `reference/extension-api.md`.
   3.0.0** — `import type` every SDK name (TS2304 means you forgot).
 - **Action handlers get `exec`, not raw input** — read `exec.input`; assert
   it to a `type` alias, never an `interface` (TS2352).
-- **Registration methods return tokens** — capture them for disposal.
+- **Registration methods return tokens** — slot ids (panels, toolbar items)
+  dispose via `ctx.ui.unregister`; handler tokens have NO unregister API —
+  a `disposed` flag guard is the disposal mechanism.
 - **`ctx.ui.pipeShellToWebPanel`**, not `ctx.shell.pipeShellToWebPanel`.
 - **120-second shell cap** on `ctx.shell.execute` and
   `pipeShellToWebPanel`; long jobs need a resume loop. **`cwd` is
