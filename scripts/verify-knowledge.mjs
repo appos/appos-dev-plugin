@@ -62,7 +62,12 @@
  *     IDENTICAL to the installed package's (names added/removed reported).
  *  2. fence type-check — every non-opted-out ts fence in tiers (a)+(b)
  *     compiles clean (tsc 5.9.3, strict, noEmit; diagnostics mapped back to
- *     the markdown file + line).
+ *     the markdown file + line). Diagnostics attributed to a NON-fence file
+ *     (installed SDK d.ts, another imported module, lib) or to no file at
+ *     all (options/global) are NOT discarded — each distinct one is
+ *     reported once as a "dependency diagnostic" / "global diagnostic"
+ *     finding (no markdown line mapping), because a broken dependency
+ *     would otherwise false-green every fence.
  *  3. stale-identifier denylist — tier (a) text must not contain pre-3.0
  *     identifiers (PluginCacheAPI, HostEventsAPI, *Namespace spellings,
  *     ambient `declare function activate`, 2.4.0-fn50, com.twopanez/plugins,
@@ -364,13 +369,33 @@ if (fenceUnits.length) {
     },
   );
   const byPath = new Map(fenceUnits.map((u) => [path.resolve(u.virtualPath), u]));
+  // Diagnostics NOT attributed to a fence virtual file (installed SDK d.ts,
+  // another imported module, lib, or file-less options/global diagnostics)
+  // must surface as failures too: if a dependency of the fences is broken,
+  // the compiler never reaches the examples and dropping these diagnostics
+  // would false-green the whole gate. Each distinct one is reported once.
+  const nonFenceSeen = new Set();
   for (const diag of ts.getPreEmitDiagnostics(program)) {
-    if (!diag.file) continue;
+    const msg = ts.flattenDiagnosticMessageText(diag.messageText, " ");
+    if (!diag.file) {
+      const key = `global::${diag.code}::${msg}`;
+      if (nonFenceSeen.has(key)) continue;
+      nonFenceSeen.add(key);
+      report("(global)", null, `global diagnostic TS${diag.code}: ${msg} — fence type-check program is unhealthy; fence results are not trustworthy`);
+      continue;
+    }
     const unit = byPath.get(path.resolve(diag.file.fileName));
-    if (!unit) continue;
+    if (!unit) {
+      const depFile = path.relative(REPO_ROOT, diag.file.fileName);
+      const { line } = diag.file.getLineAndCharacterOfPosition(diag.start ?? 0);
+      const key = `${depFile}::${line}::${diag.code}::${msg}`;
+      if (nonFenceSeen.has(key)) continue;
+      nonFenceSeen.add(key);
+      report(depFile, line + 1, `dependency diagnostic TS${diag.code}: ${msg} — error in a file the fences depend on (not in any fence); fence results are not trustworthy until this is fixed`);
+      continue;
+    }
     const { line } = diag.file.getLineAndCharacterOfPosition(diag.start ?? 0);
     const mdLine = unit.startLine + Math.max(0, line - unit.preambleLines);
-    const msg = ts.flattenDiagnosticMessageText(diag.messageText, " ");
     report(unit.mdFile, mdLine, `fence type error TS${diag.code}: ${msg}`);
   }
 }

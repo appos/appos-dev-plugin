@@ -304,6 +304,22 @@ else
     grep -qF -- "| $f | $ACTUAL_SHA |" "$INDEX_FILE" || {
       echo "[check-sdk-freshness] FAIL INDEX.md sha256 row stale for $f (recomputed $ACTUAL_SHA)" >&2; RC=1; }
   done
+
+  # Gate 5b: the INDEX.md table's file rows must match the mirror's *.d.ts set
+  # ONE-TO-ONE. The per-file grep above only proves a correct row EXISTS for
+  # each current mirror file — an obsolete, duplicate, or hand-added extra row
+  # would survive it, leaving a supposedly generated integrity index describing
+  # files that are not in the mirrored tarball. Parse every data row (skip the
+  # `| file | sha256 |` header and `|---|` separator) and require multiset
+  # equality: extra row, missing row, or duplicate row all FAIL.
+  INDEX_ROW_FILES="$(awk -F'|' '/^\|/ { f=$2; gsub(/^[ \t]+|[ \t]+$/, "", f); if (f != "file" && f !~ /^-+$/) print f }' "$INDEX_FILE" | sort)"
+  MIRROR_SET="$(printf '%s\n' "${MIRROR_DTS[@]:-}")"
+  if [[ "$INDEX_ROW_FILES" != "$MIRROR_SET" ]]; then
+    echo "[check-sdk-freshness] FAIL INDEX.md file rows are not one-to-one with the mirror's *.d.ts set (extra/missing/duplicate row)" >&2
+    echo "  index rows: $(printf '%s' "$INDEX_ROW_FILES" | tr '\n' ' ')" >&2
+    echo "  mirror    : ${MIRROR_DTS[*]:-<none>}" >&2
+    RC=1
+  fi
 fi
 
 if [[ "$RC" -eq 0 ]]; then
