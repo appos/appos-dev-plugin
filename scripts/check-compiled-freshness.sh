@@ -14,10 +14,14 @@
 #      cli-chat-system-prompt.md copy) instead of regenerating.
 #
 # Also fails when compiled/ contains a .md file the manifest does not list
-# (unaccounted drift), or when the manifest itself is not parseable JSON
+# (unaccounted drift), when the manifest itself is not parseable JSON
 # (truncated / unbalanced braces — downstream tooling could not read it even
-# if the hash-entry lines survived). Hash entries are extracted FROM THE
-# PARSED JSON OBJECT (not by scanning raw lines), so this gate checks exactly
+# if the hash-entry lines survived), or when the manifest root is not a JSON
+# object carrying "schema": 1 — this checker implements the schema-1
+# artifacts/sources semantics, so an unversioned or future-schema manifest
+# must fail rather than be silently interpreted under schema-1 rules that
+# schema-aware downstream tooling may not share. Hash entries are extracted
+# FROM THE PARSED JSON OBJECT (not by scanning raw lines), so this gate checks exactly
 # the object every downstream JSON.parse consumer sees — duplicate section
 # keys resolve last-wins the same way, and a shadowed-empty "artifacts"/
 # "sources" section fails the zero-count check instead of passing on stale
@@ -91,6 +95,14 @@ try {
 } catch (e) {
     console.error(e.message);
     process.exit(1);
+}
+if (m === null || typeof m !== "object" || Array.isArray(m)) {
+    console.error("manifest root is not a JSON object");
+    process.exit(3);
+}
+if (m.schema !== 1) {
+    console.error("unsupported manifest schema: expected \"schema\": 1, got " + JSON.stringify(m.schema));
+    process.exit(3);
 }
 const out = [];
 for (const section of ["artifacts", "sources"]) {

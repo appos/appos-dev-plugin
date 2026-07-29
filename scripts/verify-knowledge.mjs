@@ -34,7 +34,11 @@
  *    tilde fence a backtick run is literal content, and vice versa. Openers
  *    and closers tolerate at most 3 spaces of indentation (per container
  *    level) — a 4-space-indented ```-run is an indented code line / fence
- *    content, never an opener or closer. A fence
+ *    content, never an opener or closer. Indentation is measured in COLUMNS
+ *    per CommonMark §2.2 (a tab advances to the next multiple-of-4 tab stop),
+ *    which for fence lines coincides with the character-wise ` {0,3}` bound:
+ *    any tab in the leading run lands at column >= 4, so a tab-led ```-run is
+ *    >= 4 columns and rejected either way. A fence
  *    left unclosed at EOF extends through end of input per CommonMark and IS
  *    compiled like any other fence (emit-at-EOF, not fail — matches what
  *    every renderer shows readers).
@@ -44,8 +48,11 @@
  *    (`> - ```ts`). The opener's container-token sequence is recorded with
  *    the open fence and stripped from contained lines: blockquote tokens
  *    require their `>` marker on every line; list tokens require indentation
- *    to the item's CONTENT COLUMN (marker width + following spaces), which is
- *    stripped exactly — except blank lines, which stay inside the item (and
+ *    to the item's CONTENT COLUMN (marker width + following spaces), measured
+ *    in columns per §2.2 (tabs expand to 4-column stops) and stripped by the
+ *    characters covering that column — a tab straddling the boundary is
+ *    consumed and its remainder re-emitted as spaces (CommonMark's
+ *    partial-tab rule) — except blank lines, which stay inside the item (and
  *    the fence) per CommonMark. A contained line missing a required marker,
  *    or a non-blank line short of a list content column, ends the container —
  *    and the fence — at that line (fenced blocks have no lazy continuation);
@@ -349,8 +356,12 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * one optional space) and list tokens carrying the item's CONTENT COLUMN
  * (up to 3 spaces of indent + marker width + at least one following space).
  * Contained lines are stripped token by token before buffering: blockquote
- * markers must be present on every line; list content columns are stripped
- * exactly — except blank lines, which remain inside the item (and the fence)
+ * markers must be present on every line; list content columns are measured in
+ * COLUMNS per CommonMark §2.2 — a tab advances to the next multiple-of-4 tab
+ * stop from its absolute column in the line — and stripped by the CHARACTERS
+ * covering the content column, re-emitting the unconsumed remainder of a
+ * boundary-straddling tab as spaces (the partial-tab rule) — except blank
+ * lines, which remain inside the item (and the fence)
  * per CommonMark. The closer must carry the same full prefix (an
  * item-indented closer is honored; following list text is NOT swallowed).
  * Fenced blocks cannot be lazily continued: a line missing a blockquote
@@ -368,7 +379,14 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * compilation). The rule applies to the REMAINDER after container-prefix
  * stripping, i.e. per container level: `parseContainerPrefix` /
  * `stripContainerPrefix` remove blockquote markers and list content columns
- * first, then FENCE_LINE_RE's ` {0,3}` bound applies to what's left.
+ * first, then FENCE_LINE_RE's ` {0,3}` bound applies to what's left. That
+ * bound is written character-wise but is column-consistent for tabs per §2.2:
+ * a tab anywhere in the leading run advances to column >= 4 (the next
+ * multiple-of-4 stop), so a tab-led ```-run is an indented code line under
+ * BOTH readings and FENCE_LINE_RE correctly fails to match it. Partial-tab
+ * remainders re-emitted by `stripColumns` are spaces, so a tab-indented
+ * closer inside a list item (e.g. content column 2, closer `\t` + fence) is
+ * seen as `  ` + fence and closes the fence, matching rendered semantics.
  */
 const FENCE_LINE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 
@@ -377,9 +395,57 @@ const BLOCKQUOTE_MARKER_RE = /^ {0,3}> ?/;
 /**
  * One CommonMark list marker: up to 3 spaces of indent, a bullet (`-`, `*`,
  * `+`) or ordered marker (1-9 digits + `.` or `)`), and >= 1 following space.
- * The full match length IS the item's content column.
+ * The full match length IS the item's content column — in COLUMNS as well as
+ * characters, since every char the pattern admits (space, bullet, digit, `.`,
+ * `)`) is width-1. Contained lines, by contrast, may reach that column via
+ * tabs, so they are measured/stripped column-wise (see stripContainerPrefix).
  */
 const LIST_MARKER_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)]) +/;
+
+/**
+ * Measure the leading whitespace of `text` in COLUMNS per CommonMark §2.2:
+ * a space advances 1 column; a tab advances to the next multiple-of-4 tab
+ * stop. `startCol` is the absolute column of the line at which `text` begins
+ * (tab stops are anchored to the LINE, not to the stripped remainder).
+ */
+function indentColumns(text, startCol) {
+  let col = startCol;
+  for (const ch of text) {
+    if (ch === " ") col += 1;
+    else if (ch === "\t") col += 4 - (col % 4);
+    else break;
+  }
+  return col - startCol;
+}
+
+/**
+ * Strip `cols` columns of leading indentation from `text` (beginning at
+ * absolute line column `startCol`), returning the remainder. Implements
+ * CommonMark's partial-tab rule: a tab straddling the target column is
+ * consumed and its unconsumed width is re-emitted as spaces, so downstream
+ * checks (FENCE_LINE_RE's ` {0,3}` closer bound, nested content) see plain
+ * spaces. Caller must have verified indentColumns(text, startCol) >= cols.
+ */
+function stripColumns(text, cols, startCol) {
+  let col = startCol;
+  const target = startCol + cols;
+  let i = 0;
+  while (i < text.length && col < target) {
+    const ch = text[i];
+    if (ch === " ") {
+      col += 1;
+      i += 1;
+    } else if (ch === "\t") {
+      const stop = col + 4 - (col % 4);
+      i += 1;
+      if (stop > target) return " ".repeat(stop - target) + text.slice(i);
+      col = stop;
+    } else {
+      break; // unreachable when the caller's indent check held
+    }
+  }
+  return text.slice(i);
+}
 
 /**
  * Parse the container prefix of a potential OPENER line: a sequence of
@@ -415,19 +481,31 @@ function parseContainerPrefix(line) {
  * or { closed: false, content } with the prefix stripped. Blank lines inside
  * a list item stay inside the item per CommonMark (a blockquote, by contrast,
  * always requires its `>` marker).
+ *
+ * List indentation is handled in COLUMNS per CommonMark §2.2: the under-
+ * indent container-end test compares indentColumns(...) — tabs expanding to
+ * 4-column stops anchored at the line's absolute column — against the item's
+ * content column, and stripColumns(...) removes the characters covering that
+ * column, re-emitting a boundary-straddling tab's remainder as spaces. A
+ * character-count test here would see zero leading spaces on a tab-indented
+ * line, wrongly end the container, and emit an empty/truncated fence whose
+ * remaining (possibly invalid) TS is reprocessed as ordinary Markdown —
+ * escaping compilation while the gate reports success.
  */
 function stripContainerPrefix(line, tokens) {
   let rest = line;
+  let absCol = 0; // absolute line column at which `rest` begins
   for (const t of tokens) {
     if (t.kind === "bq") {
       const m = rest.match(BLOCKQUOTE_MARKER_RE);
       if (!m) return { closed: true };
       rest = rest.slice(m[0].length);
+      absCol += m[0].length; // every admitted char (space, `>`) is width-1
     } else {
       if (rest.trim() === "") return { closed: false, content: "" };
-      const indent = rest.match(/^ */)[0].length;
-      if (indent < t.col) return { closed: true };
-      rest = rest.slice(t.col);
+      if (indentColumns(rest, absCol) < t.col) return { closed: true };
+      rest = stripColumns(rest, t.col, absCol);
+      absCol += t.col;
     }
   }
   return { closed: false, content: rest };

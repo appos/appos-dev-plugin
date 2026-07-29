@@ -264,7 +264,7 @@ The output should include:
 - `webview/<panel>/styles.css`
 - `webview/<panel>/app.js`
 - `webview/shared/bridge.js` (if not already present)
-- A note to the user about which permissions to add to `plugin.json` (`ui.webPanel`, `webview`, and `shell.execute` + `shellCommands` if using pipeShellToWebPanel)
+- A note to the user about which permissions to add to `plugin.json` (`ui.webPanel`, plus `shell.execute` + `shellCommands` if using pipeShellToWebPanel — do NOT add the legacy `webview` alias: it has no host-side entry and is never granted)
 
 ### Key rules recap
 

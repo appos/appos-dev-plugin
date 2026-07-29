@@ -115,7 +115,16 @@ When the user describes what they want to build, map their requirements to speci
 
 ### 2. Permission mapping
 
-Map each API usage to the minimal set of canonical permission scopes. Never over-permission. Do NOT rely on a memorized permission count — the canonical scope union grows with the host; look up the scope(s) per namespace in the `appos-plugin-dev` skill's permission reference (the SDK's `permissions.d.ts` / `schemas/plugin-v1.json` enum is authoritative). Classic namespaces map via the API→permission table in the skill; core-plugin namespaces each carry their own scope families (e.g. `actions.register` / `actions.invoke`, `notifications.emit`, `scheduler.job.own`, `vault.store` / `vault.read`, `llm.complete`). Five legacy aliases exist for backwards compatibility but are deprecated — prefer the canonical spellings.
+Map each API usage to the minimal set of canonical permission scopes. Never over-permission. Do NOT rely on a memorized permission count — the canonical scope union grows with the host; look up the scope(s) per namespace in the `appos-plugin-dev` skill's permission reference (the SDK's `permissions.d.ts` / `schemas/plugin-v1.json` enum is authoritative). Classic namespaces map via the API→permission table in the skill; core-plugin namespaces each carry their own scope families (e.g. `actions.register` / `actions.invoke`, `notifications.emit`, `scheduler.job.own`, `vault.store` / `vault.read`, `llm.complete`).
+
+Five legacy alias spellings exist in the SDK's `LegacyPermissionScope` type union, but only ONE is backward-compatible: `network.fetch`, which the host normalizes to `network.outbound` at manifest parse time (tolerated — still recommend declaring `network.outbound` directly). The other four are DEAD: they pass schema validation but have no host-side entry, so the plugin installs "successfully" while the capability is silently never granted. When a design retains legacy names, REPLACE the four dead aliases with canonical scopes:
+
+- `network` → `network.outbound`
+- `webview` → `ui.webPanel`
+- `smartFolders` → `filesystem.read` (smart-folder filter registration runs under filesystem read)
+- `shell.uncontained` → remove entirely; the uncontained tier is NOT declarable — the host infers it from `filesystem.readAll`
+
+Never emit any of the five alias spellings in a design document's permission list. Host-behavior authority: the "Deprecated legacy aliases" table in the `appos-plugin-dev` skill's `reference/extension-api.md`.
 
 ### 3. Rendering mode decision
 
@@ -182,7 +191,7 @@ ID: space.appos.{nameid}  (or com.community.{nameid} for community)
 minHostVersion: 1.0.0
 
 API Namespaces: ui, shell, cache, feedback, lifecycle
-Permissions: ui.webPanel, webview, shell.execute, cache, feedback, feedback.confirm
+Permissions: ui.webPanel, shell.execute, cache, feedback, feedback.confirm
 Shell Commands: yt-dlp, ffmpeg
 System Dependencies:
   - yt-dlp (required, brew install yt-dlp)
