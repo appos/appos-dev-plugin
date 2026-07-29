@@ -35,16 +35,19 @@
  *    left unclosed at EOF extends through end of input per CommonMark and IS
  *    compiled like any other fence (emit-at-EOF, not fail — matches what
  *    every renderer shows readers).
- *  - CommonMark blockquote containers are supported: a fence may open inside
- *    a blockquote (`> ```ts`, nested `> > ```ts`). The container prefix depth
- *    is recorded with the open fence, stripped from contained lines, and
- *    required on the closer. A contained line WITHOUT the full prefix closes
- *    the blockquote — and therefore the fence — at that line (fenced blocks
- *    have no lazy continuation per CommonMark); the content collected up to
- *    that point is still compiled, mirroring the unclosed-at-EOF rule.
- *    Container support is deliberately blockquote-only: list-item indentation
- *    is already covered by the leading-whitespace allowance on the fence
- *    pattern.
+ *  - CommonMark container prefixes are supported: a fence may open inside
+ *    blockquotes (`> ```ts`, nested `> > ```ts`) and/or list items
+ *    (`- ```ts`, ordered `1. ```ts`), composed in any nesting order
+ *    (`> - ```ts`). The opener's container-token sequence is recorded with
+ *    the open fence and stripped from contained lines: blockquote tokens
+ *    require their `>` marker on every line; list tokens require indentation
+ *    to the item's CONTENT COLUMN (marker width + following spaces), which is
+ *    stripped exactly — except blank lines, which stay inside the item (and
+ *    the fence) per CommonMark. A contained line missing a required marker,
+ *    or a non-blank line short of a list content column, ends the container —
+ *    and the fence — at that line (fenced blocks have no lazy continuation);
+ *    the content collected up to that point is still compiled, mirroring the
+ *    unclosed-at-EOF rule, and the line is reprocessed in normal flow.
  *  - Fences tagged `ts` / `typescript` are compiled as ISOLATED ES MODULES
  *    against the pinned package. The package ships no ambient globals, so a
  *    fence must `import type { ... } from "@appos.space/plugin-types"` for
@@ -86,8 +89,9 @@
  *     ambient `declare function activate`, 2.4.0-fn50, com.twopanez/plugins,
  *     "22 namespaces" / "34 permissions", triple-slash types reference, ...).
  *  4. count-string consistency — numeric surface claims in tier (a)
- *     ("N namespaces", "N permission scopes", "N exported types", ...) must
- *     match the truth DERIVED from the mirror at run time.
+ *     ("N namespaces", "N permission scopes", "N exported types", plus the
+ *     hyphenated singular forms "N-scope" / "N-namespace", ...) must match
+ *     the truth DERIVED from the mirror at run time.
  *
  * ── Usage / exit contract ──────────────────────────────────────────────────
  *   node scripts/verify-knowledge.mjs             # run the full gate
@@ -159,9 +163,17 @@ const DENYLIST = [
 const COUNT_PATTERNS = [
   { label: "core-plugin namespaces", re: /(\d+)[\s-]+core-plugin\s+namespaces/gi, key: "corePluginNamespaces" },
   { label: "API namespaces", re: /(\d+)[\s-]+(?:API\s+)?namespaces\b/gi, key: "namespaces" },
+  // Hyphenated SINGULAR compound-adjective form ("43-namespace API surface").
+  // The plural hyphenated form ("43-namespaces") is already caught by the
+  // `[\s-]+` separator in the pattern above.
+  { label: "namespaces (hyphenated N-namespace)", re: /(\d+)-namespace\b/gi, key: "namespaces" },
   { label: "legacy aliases", re: /(\d+)[\s-]+legacy\s+alias(?:es)?\b/gi, key: "legacyAliases" },
   { label: "permission scopes", re: /(\d+)[\s-]+(?:canonical\s+)?permission\s+scopes\b/gi, key: "canonicalScopes" },
   { label: "permissions", re: /(\d+)[\s-]+permissions\b/gi, key: "canonicalScopes" },
+  // Hyphenated SINGULAR compound-adjective form — protects the README's
+  // primary claim "135-scope canonical permission model", which none of the
+  // phrase-suffix patterns above reach.
+  { label: "permission scopes (hyphenated N-scope)", re: /(\d+)-scope\b/gi, key: "canonicalScopes" },
   { label: "exported types", re: /(\d+)[\s-]+exported\s+type(?:s)?\b/gi, key: "exportedTypes" },
 ];
 
@@ -325,37 +337,87 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * diverge from rendering semantics; emitting keeps the guarantee that no ts
  * example can bypass compilation.)
  *
- * Blockquote containers (CommonMark §5.1): a fence opener may sit inside a
- * blockquote (`> ```ts`, nested `> > ```ts`). The opener records the container
- * DEPTH (number of `>` markers, each preceded by up to 3 spaces of indent and
- * followed by one optional space); contained lines have the SAME-depth prefix
- * stripped before buffering, and the closer must carry the same container
- * prefix. Fenced blocks cannot be lazily continued: a line WITHOUT the full
- * prefix closes the containing blockquote and thus ends the fence — the
- * collected content is emitted (same reader-sees-it rationale as the EOF
- * rule) and the line is reprocessed in normal document flow, where it may
- * itself open a new fence (matches CommonMark's `> ```` / `foo` / ```` `
- * example). Container support is deliberately blockquote-only: list-item
- * indentation is already covered by the leading-whitespace allowance in
- * FENCE_LINE_RE.
+ * Container prefixes (CommonMark §5.1 blockquotes + list items): a fence
+ * opener may sit inside blockquotes (`> ```ts`, nested `> > ```ts`) and/or
+ * list items (`- ```ts`, `* ```ts`, `+ ```ts`, ordered `1. ```ts` /
+ * `1) ```ts`), composed in any nesting order (`> - ```ts`). The opener
+ * records its container-token SEQUENCE — one token per marker, in order:
+ * blockquote tokens (`>` preceded by up to 3 spaces of indent, followed by
+ * one optional space) and list tokens carrying the item's CONTENT COLUMN
+ * (up to 3 spaces of indent + marker width + at least one following space).
+ * Contained lines are stripped token by token before buffering: blockquote
+ * markers must be present on every line; list content columns are stripped
+ * exactly — except blank lines, which remain inside the item (and the fence)
+ * per CommonMark. The closer must carry the same full prefix (an
+ * item-indented closer is honored; following list text is NOT swallowed).
+ * Fenced blocks cannot be lazily continued: a line missing a blockquote
+ * marker — or a non-blank line indented short of a list content column —
+ * closes the container and thus ends the fence — the collected content is
+ * emitted (same reader-sees-it rationale as the EOF rule) and the line is
+ * reprocessed in normal document flow, where it may itself open a new fence
+ * (matches CommonMark's `> ```` / `foo` / ```` ` example).
  */
 const FENCE_LINE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 
+/** One CommonMark blockquote marker: up to 3 spaces, `>`, one optional space. */
+const BLOCKQUOTE_MARKER_RE = /^ {0,3}> ?/;
 /**
- * Strip up to `maxDepth` CommonMark blockquote markers (up to 3 spaces of
- * indent, `>`, one optional following space) from the start of a line.
- * Returns { depth, rest }; depth is 0 and rest === line when no marker leads.
+ * One CommonMark list marker: up to 3 spaces of indent, a bullet (`-`, `*`,
+ * `+`) or ordered marker (1-9 digits + `.` or `)`), and >= 1 following space.
+ * The full match length IS the item's content column.
  */
-function stripBlockquotePrefix(line, maxDepth) {
+const LIST_MARKER_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)]) +/;
+
+/**
+ * Parse the container prefix of a potential OPENER line: a sequence of
+ * blockquote / list-item markers in source order. Returns { tokens, rest }
+ * where tokens is [{ kind: "bq" } | { kind: "li", col }] and rest is the line
+ * with the whole prefix removed (tokens is empty and rest === line when no
+ * container marker leads).
+ */
+function parseContainerPrefix(line) {
+  const tokens = [];
   let rest = line;
-  let depth = 0;
-  while (depth < maxDepth) {
-    const m = rest.match(/^ {0,3}> ?/);
-    if (!m) break;
-    rest = rest.slice(m[0].length);
-    depth++;
+  for (;;) {
+    const bq = rest.match(BLOCKQUOTE_MARKER_RE);
+    if (bq) {
+      tokens.push({ kind: "bq" });
+      rest = rest.slice(bq[0].length);
+      continue;
+    }
+    const li = rest.match(LIST_MARKER_RE);
+    if (li) {
+      tokens.push({ kind: "li", col: li[0].length });
+      rest = rest.slice(li[0].length);
+      continue;
+    }
+    return { tokens, rest };
   }
-  return { depth, rest };
+}
+
+/**
+ * Strip an open fence's recorded container prefix from a CONTAINED line.
+ * Returns { closed: true } when the line lacks the prefix — the container
+ * (and the fence) ends at this line and the caller must emit + reprocess it —
+ * or { closed: false, content } with the prefix stripped. Blank lines inside
+ * a list item stay inside the item per CommonMark (a blockquote, by contrast,
+ * always requires its `>` marker).
+ */
+function stripContainerPrefix(line, tokens) {
+  let rest = line;
+  for (const t of tokens) {
+    if (t.kind === "bq") {
+      const m = rest.match(BLOCKQUOTE_MARKER_RE);
+      if (!m) return { closed: true };
+      rest = rest.slice(m[0].length);
+    } else {
+      if (rest.trim() === "") return { closed: false, content: "" };
+      const indent = rest.match(/^ */)[0].length;
+      if (indent < t.col) return { closed: true };
+      rest = rest.slice(t.col);
+    }
+  }
+  return { closed: false, content: rest };
 }
 
 function extractFences(text) {
@@ -370,16 +432,17 @@ function extractFences(text) {
     const line = lines[i];
     if (open) {
       let content = line;
-      if (open.bqDepth > 0) {
-        const { depth, rest } = stripBlockquotePrefix(line, open.bqDepth);
-        if (depth < open.bqDepth) {
+      if (open.containers.length > 0) {
+        const stripped = stripContainerPrefix(line, open.containers);
+        if (stripped.closed) {
           // Fenced blocks have no lazy continuation: losing the container
-          // prefix closes the blockquote, ending the fence with it. Emit the
-          // collected content (r3 EOF rationale — compile what readers see),
-          // then fall through so this line is reprocessed in normal flow.
+          // prefix (a blockquote marker, or a list item's content-column
+          // indentation) closes the container, ending the fence with it. Emit
+          // the collected content (r3 EOF rationale — compile what readers
+          // see), then fall through so this line is reprocessed in normal flow.
           emit();
         } else {
-          content = rest;
+          content = stripped.content;
         }
       }
       if (open) {
@@ -392,12 +455,12 @@ function extractFences(text) {
         continue;
       }
     }
-    const { depth: bqDepth, rest } = stripBlockquotePrefix(line, Infinity);
+    const { tokens, rest } = parseContainerPrefix(line);
     const m = rest.match(FENCE_LINE_RE);
     if (m) {
       const info = m[3].trim();
       const [lang, ...flags] = info.split(/\s+/);
-      open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [], bqDepth };
+      open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [], containers: tokens };
     }
   }
   if (open) {

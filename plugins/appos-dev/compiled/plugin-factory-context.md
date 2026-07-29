@@ -1234,27 +1234,42 @@ WebView panels render HTML/CSS/JS in a WKWebView via the `plugin-panel://`
 scheme. Permission: `ui.webPanel`. Limits: max 2 WebView panels per plugin,
 6 globally.
 
-The 5 APIs on `ctx.ui` (all registration/handler methods return string
-tokens as of SDK 3.0.0 — capture them; panel registration ids dispose via
-`ctx.ui.unregister`, handler tokens are diagnostics-only with no
-unregister API; see `migration-2.x-to-3.0.md` §4):
+The 5 APIs on `ctx.ui` (registration/handler tokens are types-only on
+the 1.0.0 host — see the disposal note below the list):
 
-1. **`registerWebPanel(id, options)`** → registration id. `WebPanelOptions`:
+1. **`registerWebPanel(id, options)`** → typed as a registration id
+   (`string`), `undefined` on the 1.0.0 host. `WebPanelOptions`:
    `title` (required), `htmlPath` (required, relative to plugin root, no
    `..`), `icon?`, `width?`, `allowNavigation?` (default false). The `id`
    is SHORT — the runtime prefixes `{pluginId}.`.
 2. **`postToWebPanel(panelId, message, options?)`** — JSON message to all
    active instances (`{ instanceId }` targets one; max 1MB).
-3. **`onWebPanelMessage(panelId, handler)`** → token. Envelope:
+3. **`onWebPanelMessage(panelId, handler)`** → typed as a handler token
+   (`string`), `undefined` on the 1.0.0 host. Envelope:
    `{ data, instanceId, windowId, paneId }`. One handler per panelId —
    re-registering replaces.
-4. **`onWebPanelRequest(panelId, handler)`** → token. Handler returns a
+4. **`onWebPanelRequest(panelId, handler)`** → typed as a handler token
+   (`string`), `undefined` on the 1.0.0 host. Handler returns a
    value or Promise (10s timeout) sent back as the `request()` result.
 5. **`pipeShellToWebPanel(panelId, shellOptions)`** — spawns a process and
    streams `{ stream, data, bytesTotal }` chunks directly to the panel's
    instances; resolves with the final `ShellExecuteResult`. **Lives on
    `ctx.ui`, NOT `ctx.shell`.** Requires `ui.webPanel` + `shell.execute`;
    120s hard cap.
+
+**Disposal.** SDK 3.0.0 TYPES `registerWebPanel` / `onWebPanelMessage` /
+`onWebPanelRequest` as returning string tokens, but the shipped AppOS
+1.0.0 host returns `undefined` from all three at runtime (host↔d.ts
+reconciliation is a known SDK follow-up). Capture the tokens for
+type-compat, but do NOT build teardown on the runtime values —
+`ctx.ui.unregister(panelToken)` is `unregister(undefined)` on the 1.0.0
+host, which cannot unregister the panel and may throw. `ctx.ui.unregister`
+accepts only slot-based contribution ids from the other `ctx.ui`
+registration kinds (structured panels, toolbar/status items), never
+WebPanel registration or handler tokens — there is no handler-unregister
+API either way. The host removes the panel and its handlers automatically
+on plugin unload; a `disposed` flag guard is the mid-life teardown
+mechanism. See `migration-2.x-to-3.0.md` §4 and `patterns.md` §6.
 
 ### WebView-side bridge (`window.twopanez`)
 
