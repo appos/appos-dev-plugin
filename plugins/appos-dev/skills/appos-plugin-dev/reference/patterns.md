@@ -291,6 +291,7 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
         htmlPath: 'webview/download/index.html',
         allowNavigation: false,
     });
+    void panelToken; // typed as string, but undefined on the 1.0.0 host — see key points
 
     const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
         if (disposed) return;
@@ -305,21 +306,24 @@ export function registerDownloadPanel(ctx: PluginContext): () => void {
     void messageToken; // no handler-unregister API — see key points below
 
     return () => {
-        disposed = true;
-        ctx.ui.unregister(panelToken);
+        disposed = true; // host removes the panel + handler on plugin unload
     };
 }
 ```
 
 **Key points**:
-- `registerWebPanel` returns a registration id — capture it and pass it to
-  `ctx.ui.unregister` in your disposer (3.0.0 types this; 2.x hid it).
-- `onWebPanelMessage` / `onWebPanelRequest` also return tokens, but the
-  host exposes NO handler-unregister API — `ctx.ui.unregister` takes only
-  slot-based contribution ids (panels, toolbar items, status bar items),
-  not handler tokens. Capture the token for identification/debugging; the
-  `disposed` flag is the actual disposal mechanism. One handler per
-  panelId — re-registering replaces the previous handler.
+- Per the SDK 3.0.0 types, `registerWebPanel` returns a registration-token
+  string (2.x hid it) — but the shipped AppOS 1.0.0 host returns
+  `undefined` from it at runtime (host↔d.ts reconciliation is a known SDK
+  follow-up). Do NOT build teardown on the runtime value: at deactivation
+  it would call `ctx.ui.unregister(undefined)`, which cannot unregister
+  the panel and may throw. The host removes the panel automatically on
+  plugin unload; the `disposed` flag is the mid-life teardown mechanism.
+- `onWebPanelMessage` / `onWebPanelRequest` tokens are `undefined` on the
+  1.0.0 host too, and the host exposes NO handler-unregister API either
+  way — `ctx.ui.unregister` takes only slot-based contribution ids
+  (panels, toolbar items, status bar items), never handler tokens. One
+  handler per panelId — re-registering replaces the previous handler.
 - Wrap every handler in `Promise.resolve().then(...).catch(...)` so sync
   throws and async rejections land in the same error path.
 - Never log raw `err.message` — it may contain URLs, credentials, or user
@@ -350,8 +354,25 @@ export type PanelOutboundMessage =
 export function parseInbound(data: unknown): PanelInboundMessage | null {
     if (typeof data !== 'object' || data === null) return null;
     const m = data as Record<string, unknown>;
-    if (m.v !== 1 || typeof m.type !== 'string') return null;
-    // Per-type shape validation can go here...
+    if (m.v !== 1) return null;
+    // Validate EVERY variant's required fields before the cast. Checking
+    // only `v` + `typeof type === 'string'` is NOT enough: it would accept
+    // { v: 1, type: 'queue-download' } and hand downstream code a message
+    // with requestId/url/format missing — violating the untrusted-input
+    // contract these messages arrive under.
+    switch (m.type) {
+        case 'probe-url':
+            if (typeof m.probeId !== 'string' || typeof m.url !== 'string') return null;
+            break;
+        case 'queue-download':
+            if (typeof m.requestId !== 'string' || typeof m.url !== 'string' ||
+                typeof m.format !== 'string') return null;
+            break;
+        case 'request-state':
+            break; // no fields beyond the discriminator
+        default:
+            return null; // unknown type — reject, no fallthrough
+    }
     return data as PanelInboundMessage;
 }
 ```
@@ -440,8 +461,13 @@ void runYtDlp;
 - 120s hard cap; long jobs need resume loops with `--continue`
 - `cwd` must be absolute and tilde-expanded; T1 sandbox rejects relative paths and `~`
 - Always pass `--ignore-config` or the tool's equivalent
-- Chunks fan out to all panel instances; filter with `envelope.instanceId`
-  if you need per-instance isolation
+- Chunks broadcast to ALL live instances of the panel, and this cannot be
+  filtered: the chunk is `{ stream, data, bytesTotal }` — it carries no
+  instance identifier (`envelope.instanceId` exists only on
+  WebView→plugin messages, not on outbound chunks). If you need
+  per-instance isolation, don't use `pipeShellToWebPanel` — run the
+  command with `ctx.shell.execute({ onData })` and forward chunks
+  yourself via `ctx.ui.postToWebPanel(panelId, msg, { instanceId })`
 
 ## 10. Workspace template registration
 
@@ -556,27 +582,43 @@ export async function registerMenubar(ctx: PluginContext): Promise<() => void> {
             button('Open Dashboard', { action: 'open-dashboard' }),
         ]);
     }
-    await ctx.menubar.setContent(buildPopoverContent());
 
     let unsubscribed = false;
-    // ctx.events.subscribe returns a string token, not a disposer
-    const clickToken = ctx.events.subscribe('menubar.clicked', async () => {
-        if (unsubscribed) return;
-        try { await ctx.workspaces.apply(WORKSPACE_ID); } catch { /* may not exist yet */ }
-        try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* ok */ }
-    });
+    let clickToken: string | undefined;
+    let unsubscribeQueue: (() => void) | undefined;
 
-    // Update badge AND popover content as queue changes
-    const unsubscribeQueue = state.subscribe(() => {
-        const count = state.getQueue().length;
-        void ctx.menubar.setBadge(count > 0 ? count : 0);
-        ctx.menubar.setContent(buildPopoverContent()).catch(() => {});
-    });
+    // Transactional init: register() already succeeded, so any failure in
+    // the steps below must remove the status item before rethrowing —
+    // otherwise this function rejects and leaves a dangling menu bar item
+    // nobody holds a disposer for.
+    try {
+        await ctx.menubar.setContent(buildPopoverContent());
+
+        // ctx.events.subscribe returns a string token, not a disposer
+        clickToken = ctx.events.subscribe('menubar.clicked', async () => {
+            if (unsubscribed) return;
+            try { await ctx.workspaces.apply(WORKSPACE_ID); } catch { /* may not exist yet */ }
+            try { ctx.ui.showPaneTab('download', { title: 'Downloads', pane: 'left' }); } catch { /* ok */ }
+        });
+
+        // Update badge AND popover content as queue changes
+        unsubscribeQueue = state.subscribe(() => {
+            const count = state.getQueue().length;
+            void ctx.menubar.setBadge(count > 0 ? count : 0);
+            ctx.menubar.setContent(buildPopoverContent()).catch(() => {});
+        });
+    } catch (err) {
+        unsubscribed = true;
+        if (clickToken !== undefined) ctx.events.unsubscribe(clickToken);
+        unsubscribeQueue?.();
+        await ctx.menubar.remove().catch(() => { /* best effort */ });
+        throw err;
+    }
 
     return () => {
         unsubscribed = true;
-        ctx.events.unsubscribe(clickToken);
-        unsubscribeQueue();
+        if (clickToken !== undefined) ctx.events.unsubscribe(clickToken);
+        unsubscribeQueue?.();
         ctx.menubar.remove().catch(() => { /* ignore */ });
     };
 }
@@ -588,7 +630,9 @@ fine without it, so it's easy to miss. Update it reactively alongside
 `setBadge()`.
 
 **Transactional init**: if any step fails after `register` succeeds, call
-`remove()` in the catch so the menu bar doesn't leak a dangling item.
+`remove()` in the catch (as the example above does) so the menu bar
+doesn't leak a dangling item — a rejected init means the caller never
+receives the disposer, so nothing else will ever clean it up.
 
 ## 12. Smart folder filter with closure capture
 
@@ -908,9 +952,11 @@ async function activate(ctx: PluginContext): Promise<void> {
         htmlPath: 'webview/main/index.html',
         allowNavigation: false,
     });
-    disposables.push(() => ctx.ui.unregister(panelToken));
-    // Handler guard: disposables drain in REVERSE, so this flips BEFORE the
-    // panel unregisters — queued messages can't slip through mid-teardown.
+    void panelToken; // typed as string, but undefined on the 1.0.0 host — see pattern 6
+    // Teardown: the host removes the panel + handlers on plugin unload;
+    // the disposed flag is the mid-life teardown mechanism (pattern 6).
+    // Do NOT push ctx.ui.unregister(panelToken) — on the 1.0.0 host that
+    // is unregister(undefined), which cannot unregister and may throw.
     disposables.push(() => { disposed = true; });
 
     // SECURITY: messages are SEMANTIC intents, never shell-shaped. The
@@ -1150,8 +1196,11 @@ window.twopanez.onMessage((msg) => {
   relative paths
 - Always pass `--ignore-config` or equivalent to neutralize ambient user
   config
-- Chunks fan out to ALL instances of the panel; use
-  `window.twopanez.instanceId` for per-instance filtering if needed
+- Chunks fan out to ALL instances of the panel and carry no instance
+  identifier (`{ stream, data, bytesTotal }` only), so instances cannot
+  filter them — every instance renders the same output. If per-instance
+  isolation matters, use the manual path instead: `ctx.shell.execute({
+  onData })` + `ctx.ui.postToWebPanel(panelId, msg, { instanceId })`
 
 ## 23. Dependency-aware manifest
 

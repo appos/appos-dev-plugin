@@ -25,7 +25,7 @@ break classes. Work through them in order.
 1. Rename every namespace type to its `<Name>API` spelling (table below).
 2. Import every SDK type — 3.0.0 ships **no ambient globals**.
 3. Action handlers now receive an **execution context** — read input via `exec.input`.
-4. `registerWebPanel` / `onWebPanelMessage` / `onWebPanelRequest` return **string tokens** — capture them (panel ids are disposable via `ctx.ui.unregister`; handler tokens are diagnostics-only).
+4. `registerWebPanel` / `onWebPanelMessage` / `onWebPanelRequest` are **typed** as returning string tokens — capture them for type-compat, but do NOT build teardown on them: the shipped AppOS 1.0.0 host returns `undefined` at runtime (host↔d.ts reconciliation is a known SDK follow-up). Disposal is a `disposed`-flag guard plus host cleanup on plugin unload.
 5. Change `interface` → `type` for anything you assert `exec.input` (or other `AnyJSONValue`) to.
 6. Bump dependency pins `^2.4.0` → `^3.0.0` — and ignore the stale README inside the 3.0.0 tarball.
 
@@ -151,7 +151,7 @@ await ctx.actions.register(
 (`"user" | "plugin" | "agent" | "recipe" | "sequence" | "system"`) — use it
 when an action must behave differently for agent-driven invocations.
 
-## 4. WebPanel registrations now return string tokens
+## 4. WebPanel registrations now return string tokens (in the types)
 
 In 2.x the d.ts typed `registerWebPanel`, `onWebPanelMessage`, and
 `onWebPanelRequest` as `void`, so no 2.x code captured their results:
@@ -162,37 +162,45 @@ ctx.ui.registerWebPanel('download', { title: 'Downloads', htmlPath: 'webview/dow
 ctx.ui.onWebPanelMessage('download', handleMessage);
 ```
 
-3.0.0 types what the host actually returns: a `string`. This is
-**silently non-breaking at runtime** — your old code keeps working — but
-the two token kinds have DIFFERENT disposal semantics:
+3.0.0 TYPES all three as returning a `string` token — but the shipped
+AppOS 1.0.0 host returns `undefined` from them at runtime (host↔d.ts
+reconciliation is a known SDK follow-up). This is **silently non-breaking
+at runtime** — your old code keeps working — but it means you must not
+build teardown on the returned values:
 
-- `registerWebPanel` returns a **slot-based registration id**. Uncaptured,
-  the panel registration cannot be disposed deterministically and leaks
-  across deactivate/activate cycles. Capture it and thread
-  `ctx.ui.unregister(panelToken)` into your disposable tracking.
+- `registerWebPanel`: capture the token for type-compat, but do NOT
+  thread `ctx.ui.unregister(panelToken)` into your disposable tracking —
+  on the 1.0.0 host that is `ctx.ui.unregister(undefined)`, which cannot
+  unregister the panel and may throw. The host removes the panel
+  automatically on plugin unload; a `disposed` flag is the mid-life
+  teardown mechanism.
 - `onWebPanelMessage` / `onWebPanelRequest` return **handler tokens** with
-  NO unregister path — `ctx.ui.unregister` accepts only slot-based
-  contribution ids (panels, toolbar/status items), not handler tokens.
-  Capture them for identification/debugging; actual disposal is a
-  `disposed` flag guard inside the handler closure plus host cleanup on
-  plugin deactivation. (One handler per panelId — re-registering replaces
-  the previous one.)
+  NO unregister path either way — `ctx.ui.unregister` accepts only
+  slot-based contribution ids (panels, toolbar/status items), not handler
+  tokens. Capture them for identification/debugging; actual disposal is
+  the same `disposed` flag guard inside the handler closure plus host
+  cleanup on plugin deactivation. (One handler per panelId —
+  re-registering replaces the previous one.)
 
 ```ts
 const disposables: Array<() => void | Promise<void>> = [];
+
+let disposed = false;
 
 const panelToken = ctx.ui.registerWebPanel('download', {
     title: 'Downloads',
     htmlPath: 'webview/download/index.html',
 });
-disposables.push(() => ctx.ui.unregister(panelToken)); // slot id → disposable
+void panelToken; // typed as string, but undefined on the 1.0.0 host — do not unregister with it
 
-let disposed = false;
 const messageToken = ctx.ui.onWebPanelMessage('download', (envelope) => {
     if (disposed) return;               // the real disposal mechanism
     // envelope: { data, instanceId, windowId, paneId }
 });
 void messageToken;                      // diagnostics only — no unregister API
+
+// The ONE teardown disposable: flip the flag; the host removes the panel
+// and handlers on plugin unload.
 disposables.push(() => { disposed = true; });
 ```
 

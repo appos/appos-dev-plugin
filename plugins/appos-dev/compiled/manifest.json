@@ -2,12 +2,12 @@
   "schema": 1,
   "artifacts": {
     "cli-chat-system-prompt.md": "0ace5e39d569fac84ca22e244bfb5dae8242b14e059395894f16f712b1ecc170",
-    "plugin-factory-context.md": "747e5096f5d908b790ad1d8d2cf30c93f46eb6bbf0a310f58491f35313c76bb2"
+    "plugin-factory-context.md": "9cbf12e3acc72766ef35ee062e7af7fbec9fde00760e5f3b5e47bf4254c79f34"
   },
   "sources": {
     "SKILL.md": "235463704a4c3d176a272848ae008db54bc9c16f291ab1f77546e9e45d3bc1fe",
     "reference/extension-api.md": "2022fc97505b966cbddfe13aac59862e797a73b0dffbf5526c4eb8e981f43454",
-    "reference/patterns.md": "31f103323b7c178f5a2b72552a3ea68fd5a114ea850433ad569855ecce7bad9f",
+    "reference/patterns.md": "e828e95cf8595e0d8b5dcf7b3dba5fae0cee3778b361a3b1dc86c1828980a388",
     "reference/plugin-api/index.d.ts": "cbdd7a4aa96001d3fe664427ffc30039ce09ba80dca2eee32960c5c925c4d8d4",
     "reference/plugin-api/core.d.ts": "3e951ef56e6148879fbe92d592399711f4bad5556f1549233ec3d32d0d9c49f9",
     "reference/plugin-api/views.d.ts": "dc3ae9b751b1cce8541e269c8000001dd819622fe1d5dfdbee7c6ca88c06f551",

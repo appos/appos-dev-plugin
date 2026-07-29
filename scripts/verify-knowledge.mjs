@@ -28,6 +28,10 @@
  *      fn-165.2/.3 gate-green against fn-165.4's regeneration ordering).
  *
  * ── Fence conventions ──────────────────────────────────────────────────────
+ *  - Both CommonMark fence forms are recognized: backtick (```) AND tilde
+ *    (~~~) runs of >= 3, closed by a run of the SAME character at least as
+ *    long as the opener. The two are not interchangeable — inside an open
+ *    tilde fence a backtick run is literal content, and vice versa.
  *  - Fences tagged `ts` / `typescript` are compiled as ISOLATED ES MODULES
  *    against the pinned package. The package ships no ambient globals, so a
  *    fence must `import type { ... } from "@appos.space/plugin-types"` for
@@ -287,20 +291,28 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
 // Check 2 — fence extraction + type-check.
 // ───────────────────────────────────────────────────────────────────────────
 
-/** Extract fenced code blocks: { lang, flags, startLine (1-based, first code line), code }. */
+/**
+ * Extract fenced code blocks: { lang, flags, startLine (1-based, first code line), code }.
+ * Recognizes BOTH CommonMark fence characters — backtick (```) and tilde (~~~)
+ * runs of >= 3. The state machine tracks the OPENING fence character + length:
+ * a fence closes only on a run of the SAME character at least as long as the
+ * opener (with no trailing info string). Per CommonMark the two forms are not
+ * interchangeable — inside an open tilde fence a backtick run is literal
+ * content, and vice versa.
+ */
 function extractFences(text) {
   const lines = text.split(/\r?\n/);
   const fences = [];
   let open = null;
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(\s*)(`{3,})(.*)$/);
+    const m = lines[i].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
     if (!open) {
       if (m) {
         const info = m[3].trim();
         const [lang, ...flags] = info.split(/\s+/);
         open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [] };
       }
-    } else if (m && m[2].length >= open.fence.length && m[3].trim() === "") {
+    } else if (m && m[2][0] === open.fence[0] && m[2].length >= open.fence.length && m[3].trim() === "") {
       fences.push({ lang: open.lang, flags: open.flags, startLine: open.startLine, code: open.code.join("\n") });
       open = null;
     } else {

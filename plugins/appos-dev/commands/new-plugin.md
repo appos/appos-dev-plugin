@@ -186,7 +186,7 @@ If the plugin exposes public actions (command palette, automation), add an `exte
 ```json
 "extensions": [
     {
-        "extensionPoint": "space.appos.core.actions:actions.definition",
+        "extensionPoint": "actions.definition",
         "contribution": {
             "id": "refresh-stats",
             "displayName": "Refresh File Stats",
@@ -200,9 +200,9 @@ If the plugin exposes public actions (command palette, automation), add an `exte
 ]
 ```
 
-**Dual registration is required.** The host replays manifest `extensions[]` `actions.definition` contributions into the actions discovery tier at startup, so the action is discoverable cold-start (palette, `ctx.actions.all()`, the Settings → Actions browser — badged "manifest only") before your code ever runs. But a manifest entry alone is NOT executable — invoking it returns `ACTION_NOT_FOUND` until your `activate()` also calls `ctx.actions.register()` with the same id to bind the handler (the executable registration shadows the manifest stub; no duplicate rows). Ship BOTH: the manifest contribution for cold-start discoverability AND the runtime `register()` for execution.
+**Dual registration is required.** Manifest-declared actions don't reach discovery on their own yet (host bug fn-163; see `skills/appos-plugin-dev/reference/extension-api.md`): an `actions.definition` contribution alone currently never becomes palette-visible or invokable — no cold-start palette entry, no `ctx.actions.all()` stub, no Settings → Actions row. Today the manifest entry is catalog/manifest metadata (visible in catalogs and manifest scans), not runtime discovery. Pair EVERY `actions.definition` contribution with a runtime `ctx.actions.register(...)` or `ctx.actions.registerFromCommand(...)` call in `activate()` using the same id — the runtime registration is what makes the action discoverable and executable. Ship BOTH, exactly as `appos-plugin-ytdlp` does. <!-- remove when fn-163 lands -->
 
-**Removal marker**: when you retire an action, remove BOTH sites. Deleting only the runtime `register()` call leaves the manifest stub re-replayed at every cold start — a permanently non-executable palette entry.
+**Removal marker**: when you retire an action, remove BOTH sites — the runtime `register()` call and the manifest contribution. A leftover manifest stub is stale catalog/manifest metadata today, and once fn-163 lands it would be replayed into discovery at every cold start as a permanently non-executable palette entry.
 
 ## 9. Write src/main.ts
 
