@@ -16,7 +16,12 @@
 # Also fails when compiled/ contains a .md file the manifest does not list
 # (unaccounted drift), or when the manifest itself is not parseable JSON
 # (truncated / unbalanced braces — downstream tooling could not read it even
-# if the hash-entry lines survived).
+# if the hash-entry lines survived). Hash entries are extracted FROM THE
+# PARSED JSON OBJECT (not by scanning raw lines), so this gate checks exactly
+# the object every downstream JSON.parse consumer sees — duplicate section
+# keys resolve last-wins the same way, and a shadowed-empty "artifacts"/
+# "sources" section fails the zero-count check instead of passing on stale
+# raw-line matches.
 #
 # The manifest and every file in compiled/ are written by the AppOS-Desktop
 # repo's scripts/compile-factory-context.sh (ownership: the factory context
@@ -46,21 +51,69 @@ if [[ ! -f "$MANIFEST" ]]; then
     exit 2
 fi
 
-# Structurally validate the manifest as JSON BEFORE trusting any hash-entry
-# lines. A truncated or brace-unbalanced manifest can still match the per-line
-# entry regex below, which would let this gate report OK on a manifest that
-# downstream JSON consumers cannot parse. node is guaranteed in CI (setup-node
-# + npm ci in verify.yml) and on dev machines; jq is not.
+# Parse the manifest as JSON and emit every hash entry FROM THE PARSED OBJECT
+# as "section<TAB>file<TAB>hash" lines for the shell loop below. Parsing and
+# hash extraction share one JSON view, so this gate can never diverge from
+# what downstream JSON.parse consumers read — a truncated manifest fails
+# outright, and duplicate section keys resolve last-wins here exactly as they
+# do for every other JSON consumer (a shadowed-empty section then trips the
+# zero-count check below instead of passing on raw-line matches from the
+# shadowed occurrence). node is guaranteed in CI (setup-node + npm ci in
+# verify.yml) and on dev machines; jq is not.
 if ! command -v node >/dev/null 2>&1; then
-    echo "error: node not available — required to validate $MANIFEST as JSON" >&2
+    echo "error: node not available — required to parse $MANIFEST" >&2
     exit 2
 fi
-json_err="$(node -e 'try { JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); } catch (e) { console.error(e.message); process.exit(1); }' "$MANIFEST" 2>&1)" || {
-    echo "DRIFT: $MANIFEST is not valid JSON: $json_err" >&2
+# node exit codes: 0 = entries on stdout; 1 = not parseable JSON;
+# 3 = parseable but not the expected shape. Anything else = node blew up.
+# All validation happens before any output, so on failure the captured
+# output is exactly the error message.
+manifest_entries="$(node -e '
+const fs = require("fs");
+let m;
+try {
+    m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+} catch (e) {
+    console.error(e.message);
+    process.exit(1);
+}
+const out = [];
+for (const section of ["artifacts", "sources"]) {
+    const obj = m[section];
+    if (obj === undefined) continue; // missing section -> zero-count check below
+    if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+        console.error(JSON.stringify(section) + " is not a JSON object");
+        process.exit(3);
+    }
+    for (const [rel, hash] of Object.entries(obj)) {
+        if (/[\t\n]/.test(rel)) {
+            console.error(JSON.stringify(section) + " key " + JSON.stringify(rel) + " contains a tab or newline");
+            process.exit(3);
+        }
+        if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) {
+            console.error(JSON.stringify(section) + " entry " + JSON.stringify(rel) + " is not a 64-char lowercase sha256 hex string");
+            process.exit(3);
+        }
+        out.push(section + "\t" + rel + "\t" + hash);
+    }
+}
+if (out.length > 0) process.stdout.write(out.join("\n") + "\n");
+' "$MANIFEST" 2>&1)"
+node_status=$?
+if [[ $node_status -eq 1 ]]; then
+    echo "DRIFT: $MANIFEST is not valid JSON: $manifest_entries" >&2
     echo "  (truncated or hand-edited?) Regenerate from an AppOS-Desktop checkout:" >&2
     echo "  ./scripts/compile-factory-context.sh   (writes compiled/ + manifest here)" >&2
     exit 1
-}
+elif [[ $node_status -eq 3 ]]; then
+    echo "DRIFT: $MANIFEST is valid JSON but not the expected shape: $manifest_entries" >&2
+    echo "  (hand-edited?) Regenerate from an AppOS-Desktop checkout:" >&2
+    echo "  ./scripts/compile-factory-context.sh   (writes compiled/ + manifest here)" >&2
+    exit 1
+elif [[ $node_status -ne 0 ]]; then
+    echo "error: node exited $node_status while parsing $MANIFEST: $manifest_entries" >&2
+    exit 2
+fi
 
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -76,21 +129,11 @@ sha256_of() {
 }
 
 FAIL=0
-ENTRY_RE='"([^"]+)": "([0-9a-f]{64})"'
-section=""
 artifact_count=0
 source_count=0
 declare -a MANIFEST_ARTIFACTS=()
 
-while IFS= read -r line; do
-    case "$line" in
-        *'"artifacts": {'*) section="artifacts"; continue ;;
-        *'"sources": {'*)   section="sources";   continue ;;
-    esac
-    [[ "$line" =~ $ENTRY_RE ]] || continue
-    rel="${BASH_REMATCH[1]}"
-    want="${BASH_REMATCH[2]}"
-
+while IFS=$'\t' read -r section rel want; do
     case "$section" in
         artifacts)
             file="$COMPILED_DIR/$rel"
@@ -120,7 +163,7 @@ while IFS= read -r line; do
         echo "  actual   sha256: $got" >&2
         FAIL=1
     fi
-done < "$MANIFEST"
+done <<< "$manifest_entries"
 
 if [[ $artifact_count -eq 0 || $source_count -eq 0 ]]; then
     echo "error: $MANIFEST parsed with $artifact_count artifacts / $source_count sources — manifest malformed?" >&2

@@ -152,7 +152,7 @@ The leading `;` on the globalThis assignments prevents ASI hazards. **Use
 | Notify the user (routable) | `ctx.notifications.emit()` | User rules pick the channel — never the emitter. |
 | Toast / HUD / alert (always local) | `ctx.feedback.toast()` / `.hud()` / `.alert()` | `notify()` auto-routes by focus state. |
 | Durable, queryable storage | `ctx.store` | Document + KV namespaces; prefer over `cache`/`storage` for real data. |
-| Secrets | `ctx.vault` | Opaque refs; raw material never enters JS. |
+| Secrets | `ctx.vault` | You supply raw material once at `store()`; after that only opaque refs — no read-back into JS. |
 | Persistent small state (queue, prefs) | `ctx.cache.set(key, value, { persist: true })` | `cache.get()` returns deserialized values — do NOT `JSON.parse`. |
 | Run a CLI with streaming output | `ctx.ui.pipeShellToWebPanel(panelId, shellOpts)` | **On `ctx.ui`, NOT `ctx.shell`.** 120s hard cap — resume-loop long jobs. |
 | File-aware filters (smart folders) | `ctx.smartFolders.registerFilterType()` | Synchronous `evaluate` closure; rebuild lookups on state change. |

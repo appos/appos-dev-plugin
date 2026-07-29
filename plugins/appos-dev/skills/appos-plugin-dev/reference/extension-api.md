@@ -269,10 +269,13 @@ reserved word. `export(namespace)` returns base64 JSONL.
 
 #### The rest of the platform wave (one paragraph each)
 
-- **`ctx.vault`** (`VaultAPI`, fn-72) — credential vault. Raw material never
-  crosses into JS: `store()` returns an opaque `CredentialRef`; `use(refId,
-  purpose, body)` runs a scoped callback; `buildRequest`/`injectHeader`
-  produce server-held request ids for `network`. Anti-enumeration on
+- **`ctx.vault`** (`VaultAPI`, fn-72) — credential vault. Raw material
+  transits your JS isolate exactly once, at `store(kind, label, material)`
+  (you supply the secret); after storage it is never re-exposed to JS —
+  there is no read-back API. `store()` returns an opaque `CredentialRef`;
+  `use(refId, purpose, body)` runs a scoped callback over an opaque
+  handle; `buildRequest`/`injectHeader` produce server-held request ids
+  for `network`, so raw tokens never return to JS. Anti-enumeration on
   unknown refs. Scopes: `vault.store`, `vault.read`, `vault.list`,
   `vault.share`, `vault.audit`, contributor `vault.*.register`.
 - **`ctx.resources`** (`ResourcesAPI`, fn-92) — URI-addressable shared read

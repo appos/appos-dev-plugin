@@ -169,7 +169,7 @@ The leading `;` on the globalThis assignments prevents ASI hazards. **Use
 | Notify the user (routable) | `ctx.notifications.emit()` | User rules pick the channel — never the emitter. |
 | Toast / HUD / alert (always local) | `ctx.feedback.toast()` / `.hud()` / `.alert()` | `notify()` auto-routes by focus state. |
 | Durable, queryable storage | `ctx.store` | Document + KV namespaces; prefer over `cache`/`storage` for real data. |
-| Secrets | `ctx.vault` | Opaque refs; raw material never enters JS. |
+| Secrets | `ctx.vault` | You supply raw material once at `store()`; after that only opaque refs — no read-back into JS. |
 | Persistent small state (queue, prefs) | `ctx.cache.set(key, value, { persist: true })` | `cache.get()` returns deserialized values — do NOT `JSON.parse`. |
 | Run a CLI with streaming output | `ctx.ui.pipeShellToWebPanel(panelId, shellOpts)` | **On `ctx.ui`, NOT `ctx.shell`.** 120s hard cap — resume-loop long jobs. |
 | File-aware filters (smart folders) | `ctx.smartFolders.registerFilterType()` | Synchronous `evaluate` closure; rebuild lookups on state change. |
@@ -810,10 +810,13 @@ reserved word. `export(namespace)` returns base64 JSONL.
 
 #### The rest of the platform wave (one paragraph each)
 
-- **`ctx.vault`** (`VaultAPI`, fn-72) — credential vault. Raw material never
-  crosses into JS: `store()` returns an opaque `CredentialRef`; `use(refId,
-  purpose, body)` runs a scoped callback; `buildRequest`/`injectHeader`
-  produce server-held request ids for `network`. Anti-enumeration on
+- **`ctx.vault`** (`VaultAPI`, fn-72) — credential vault. Raw material
+  transits your JS isolate exactly once, at `store(kind, label, material)`
+  (you supply the secret); after storage it is never re-exposed to JS —
+  there is no read-back API. `store()` returns an opaque `CredentialRef`;
+  `use(refId, purpose, body)` runs a scoped callback over an opaque
+  handle; `buildRequest`/`injectHeader` produce server-held request ids
+  for `network`, so raw tokens never return to JS. Anti-enumeration on
   unknown refs. Scopes: `vault.store`, `vault.read`, `vault.list`,
   `vault.share`, `vault.audit`, contributor `vault.*.register`.
 - **`ctx.resources`** (`ResourcesAPI`, fn-92) — URI-addressable shared read

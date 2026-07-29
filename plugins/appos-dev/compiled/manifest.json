@@ -2,11 +2,11 @@
   "schema": 1,
   "artifacts": {
     "cli-chat-system-prompt.md": "0ace5e39d569fac84ca22e244bfb5dae8242b14e059395894f16f712b1ecc170",
-    "plugin-factory-context.md": "c40796dad1e1cd8e3f39ad7457b440ca7bb30de165fe7e60e7a2beb99323e346"
+    "plugin-factory-context.md": "6eadd786b2db8e287d046b51aff958a189d44a35e6bd7d4ecbbc535d6e53379a"
   },
   "sources": {
-    "SKILL.md": "758107dd285e74bfa3f4e6f3372607a69ada0bcf348de508c16994d225e3119b",
-    "reference/extension-api.md": "a7dbb4c52ed6416b16e6a08bbf12b8708a434f821b81d66c6cbaea584ca93f20",
+    "SKILL.md": "530676e9406c748e329833a1521c6cc4749e8be027544e7de2f530f24acce292",
+    "reference/extension-api.md": "c583bc9b6acd17570f72398031418e1bfcc6d0faec9eb0f8298b3ac7717ff7ca",
     "reference/patterns.md": "e828e95cf8595e0d8b5dcf7b3dba5fae0cee3778b361a3b1dc86c1828980a388",
     "reference/plugin-api/index.d.ts": "cbdd7a4aa96001d3fe664427ffc30039ce09ba80dca2eee32960c5c925c4d8d4",
     "reference/plugin-api/core.d.ts": "3e951ef56e6148879fbe92d592399711f4bad5556f1549233ec3d32d0d9c49f9",
