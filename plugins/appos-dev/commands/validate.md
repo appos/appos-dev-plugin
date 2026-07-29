@@ -43,7 +43,7 @@ npx --yes -p ajv-cli -p ajv-formats ajv validate \
 
 Exit 0 with `plugin.json valid` = pass. On failure, ajv prints the offending JSON paths — e.g., an unknown permission string fails the `permissions` items enum.
 
-> **Why the `v3.0.0` tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS 1.0.0 host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown`), and the SDK 3.0.0 release schema mirrors exactly that: the full permission enum (135 canonical permission scopes + 5 legacy aliases (deprecated)) plus the `extensions` field for core-plugin extension contributions. Pin the tag for reproducibility; `main` currently carries the same schema, but tags don't move under you. Do NOT use the older `v2.4.0` tag — its schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, `notifications.emit`, and `extensions[]` contributions. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch from npm.) Note the separate compile-time bound: the SDK version you compile against (`^3.0.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK schema ever moves ahead of your installed host, cross-check the `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
+> **Why the `v3.0.0` tag:** the schema anchor is chosen for *install-time* truth. The shipped AppOS 1.0.0 host validates and gates permissions against its full current scope surface (`PermissionScope.allKnown`), and the SDK 3.0.0 release schema carries the full permission enum (135 canonical permission scopes + 5 legacy aliases (deprecated)) plus the `extensions` field for core-plugin extension contributions. **Caveat:** the 5 legacy aliases are schema-*tolerated*, not host-honored — only `network.fetch` has a host-side alias entry (normalized to `network.outbound` at manifest parse time); the other four (`network`, `smartFolders`, `webview`, `shell.uncontained`) grant nothing at install time, so an AJV pass alone is NOT install-time permission truth. Always run the legacy-alias post-check below after schema validation. Pin the tag for reproducibility; `main` currently carries the same schema, but tags don't move under you. Do NOT use the older `v2.4.0` tag — its schema predates the core-plugin waves: it knows only 37 of the current 140 permission strings and rejects the `extensions` field entirely, so it falsely FAILS valid manifests — including the flagship `appos-plugin-ytdlp`, which declares `actions.register`, `actions.invoke`, `notifications.emit`, and `extensions[]` contributions. (The published `@appos.space/plugin-types` npm package ships only `.d.ts` files — there is no per-release package schema to fetch from npm.) Note the separate compile-time bound: the SDK version you compile against (`^3.0.0`) limits which *typed APIs* your TypeScript sees, not which manifest permissions the host accepts. If a future SDK schema ever moves ahead of your installed host, cross-check the `minHostVersion` guidance above — manifest validity is anchored to the host, not the npm package.
 
 **Alternative (plugin-sdk clone available)** — validate offline with the clone's own validator, passing your manifest path as a positional argument:
 
@@ -54,6 +54,19 @@ node "$SDK_CLONE/scripts/validate-schema.mjs" "$PLUGIN_ROOT/plugin.json"
 Exit 0 = pass; on failure it prints the offending JSON paths. This runs fully offline — both the schema and the validator live in the clone — with one precondition: the clone's dev dependencies (`ajv`, `ajv-formats`) must be installed. Run `npm install` in `$SDK_CLONE` once while online; if that never happened and you're offline now, use the structural fallback below instead. Do NOT substitute the `npx ajv` recipe here — `npx` resolves its packages from npm, so it is not offline-capable.
 
 If you're offline and have no clone, fall back to the structural checks above (required fields, ID format, minHostVersion landmine) and state in the report that the permission set could NOT be authoritatively verified.
+
+### Legacy-alias post-check (required — a schema pass is not host truth)
+
+The schema tolerates 5 legacy aliases for compile-time compatibility, but the host's alias map implements only ONE of them — see the "Deprecated legacy aliases" table in the `appos-plugin-dev` skill's `reference/extension-api.md` (host-behavior authority) and `LegacyPermissionScope` in `reference/plugin-api/permissions.d.ts`. After schema validation passes (whichever path you used), re-scan the manifest's `permissions` array — both bare strings and `{ scope, reason }` object entries — and:
+
+- **ERROR — dead aliases.** These pass AJV but have NO host-side entry: they are silently never granted, so the plugin installs "successfully" yet lacks the capability at runtime. Flag each occurrence as an ERROR with its canonical replacement:
+  - `network` → replace with `network.outbound`
+  - `webview` → replace with `ui.webPanel`
+  - `smartFolders` → replace with `filesystem.read` (smart-folder filter registration runs under filesystem read)
+  - `shell.uncontained` → remove entirely; the uncontained tier is NOT declarable — the host infers it from `filesystem.readAll`
+- **WARNING — tolerated but rename.** `network.fetch` is the one real alias: the host normalizes it to `network.outbound` at manifest parse time, so it works today, but flag it and recommend declaring `network.outbound` directly.
+
+A manifest declaring any of the four dead aliases must NOT be reported as an overall PASS on permissions.
 
 If the manifest declares `shell.execute`, verify `"shellCommands"` is present and non-empty. The AppOS sandbox blocks any command not in that list.
 
@@ -82,7 +95,7 @@ Search `src/main.ts` and any files it imports (`src/**/*.ts`) for API usage and 
 | Source pattern | Required permission |
 |---|---|
 | `ctx.ui.registerPanel`, `ctx.ui.registerActivityView`, `ctx.ui.registerFileRowAnnotation` | `ui.sidebar` |
-| `ctx.ui.registerWebPanel`, `ctx.ui.postToWebPanel`, `ctx.ui.onWebPanelMessage`, `ctx.ui.pipeShellToWebPanel` | `ui.webPanel` + `webview` |
+| `ctx.ui.registerWebPanel`, `ctx.ui.postToWebPanel`, `ctx.ui.onWebPanelMessage`, `ctx.ui.pipeShellToWebPanel` | `ui.webPanel` (the `webview` alias is dead — never granted) |
 | `ctx.ui.registerStatusBarItem` | `ui.statusBar` |
 | `ctx.ui.registerContextMenuItem` | `ui.contextMenu` |
 | `ctx.ui.showNotification` | `ui.notifications` |
@@ -96,18 +109,24 @@ Search `src/main.ts` and any files it imports (`src/**/*.ts`) for API usage and 
 | `ctx.shell.execute`, `ctx.shell.pipeToWebPanel` (deprecated — use `ctx.ui.pipeShellToWebPanel`) | `shell.execute` |
 | `ctx.clipboard.read` | `clipboard.read` |
 | `ctx.clipboard.write` | `clipboard.write` |
-| `ctx.network.fetch` | `network` or `network.outbound` |
+| `ctx.network.fetch` | `network.outbound` (legacy `network.fetch` is normalized to it; bare `network` is dead — never granted) |
 | `ctx.cache.get`, `.set`, `.delete` | `cache` |
 | `ctx.feedback.toast`, `.log` | `feedback` |
 | `ctx.feedback.confirm`, `.prompt` | `feedback.confirm` |
 | `ctx.workspaces.register`, `.apply`, `.list` | `workspaces` |
 | `ctx.menubar.register`, `.setBadge`, `.remove` | `menubar` |
-| `ctx.smartFolders.registerFilterType` | `smartFolders` |
+| `ctx.smartFolders.registerFilterType` | `filesystem.read` (the `smartFolders` alias is dead — never granted) |
 | `ctx.storage.getSecure`, `.setSecure` | `keychain.plugin` |
 
 The table above covers the classic namespaces. Core-plugin namespaces (`ctx.actions`, `ctx.notifications`, `ctx.scheduler`, `ctx.vault`, `ctx.store`, `ctx.resources`, `ctx.entities`, `ctx.views`, `ctx.webhook`, `ctx.llm`, `ctx.recipes`, `ctx.sequences`, ...) each require their own scopes (e.g. `actions.register`, `actions.invoke`, `notifications.emit`, `scheduler.job.own`). Do NOT hand-check those against a memorized list — look the scope up per namespace in the `appos-plugin-dev` skill's permission reference (the schema validation in step 2 is the authoritative enum check).
 
-Also cross-check `extensions[]`: an `actions.definition` contribution requires the `actions.register` permission, and each core-plugin contribution type requires its matching `*.register` scope.
+Also cross-check `extensions[]`: for each entry, look up the `extensionPoint`'s required permission scope in the per-extension-point documentation in the `appos-plugin-dev` skill's `reference/extension-api.md` (the `extensions[]` section plus the per-namespace scope notes), and verify the exact spelling against `CanonicalPermissionScope` in `reference/plugin-api/permissions.d.ts`. Do NOT derive the scope mechanically as `<family>.register` — several contribution families use differently-shaped scopes, and a mechanical suffix both misses the real requirement and recommends a scope that does not exist. Contrasting examples:
+
+- `actions.definition` → `actions.register`, and `space.appos.core.notifications:channel` → `notifications.channel.register` (the `*.register` families, where the suffix happens to hold)
+- `surfaces.contribution` → the per-surface scope `surfaces.contribute.<surface>` (e.g. `surfaces.contribute.sidebar.top`) — there is NO `surfaces.register`
+- computed-field provider contributions (fn-93 entities) → `entities.computedField.provide` — a `*.provide` scope, not `*.register`
+
+If a declared scope is a valid canonical scope for that extension point per the reference, do not report it as missing merely because it lacks a `.register` suffix.
 
 Report any missing permissions (API used but not declared) or excess permissions (declared but not used).
 

@@ -35,6 +35,16 @@
  *    left unclosed at EOF extends through end of input per CommonMark and IS
  *    compiled like any other fence (emit-at-EOF, not fail — matches what
  *    every renderer shows readers).
+ *  - CommonMark blockquote containers are supported: a fence may open inside
+ *    a blockquote (`> ```ts`, nested `> > ```ts`). The container prefix depth
+ *    is recorded with the open fence, stripped from contained lines, and
+ *    required on the closer. A contained line WITHOUT the full prefix closes
+ *    the blockquote — and therefore the fence — at that line (fenced blocks
+ *    have no lazy continuation per CommonMark); the content collected up to
+ *    that point is still compiled, mirroring the unclosed-at-EOF rule.
+ *    Container support is deliberately blockquote-only: list-item indentation
+ *    is already covered by the leading-whitespace allowance on the fence
+ *    pattern.
  *  - Fences tagged `ts` / `typescript` are compiled as ISOLATED ES MODULES
  *    against the pinned package. The package ships no ambient globals, so a
  *    fence must `import type { ... } from "@appos.space/plugin-types"` for
@@ -314,30 +324,86 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * alternative — failing on unclosed fences — was rejected because it would
  * diverge from rendering semantics; emitting keeps the guarantee that no ts
  * example can bypass compilation.)
+ *
+ * Blockquote containers (CommonMark §5.1): a fence opener may sit inside a
+ * blockquote (`> ```ts`, nested `> > ```ts`). The opener records the container
+ * DEPTH (number of `>` markers, each preceded by up to 3 spaces of indent and
+ * followed by one optional space); contained lines have the SAME-depth prefix
+ * stripped before buffering, and the closer must carry the same container
+ * prefix. Fenced blocks cannot be lazily continued: a line WITHOUT the full
+ * prefix closes the containing blockquote and thus ends the fence — the
+ * collected content is emitted (same reader-sees-it rationale as the EOF
+ * rule) and the line is reprocessed in normal document flow, where it may
+ * itself open a new fence (matches CommonMark's `> ```` / `foo` / ```` `
+ * example). Container support is deliberately blockquote-only: list-item
+ * indentation is already covered by the leading-whitespace allowance in
+ * FENCE_LINE_RE.
  */
+const FENCE_LINE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Strip up to `maxDepth` CommonMark blockquote markers (up to 3 spaces of
+ * indent, `>`, one optional following space) from the start of a line.
+ * Returns { depth, rest }; depth is 0 and rest === line when no marker leads.
+ */
+function stripBlockquotePrefix(line, maxDepth) {
+  let rest = line;
+  let depth = 0;
+  while (depth < maxDepth) {
+    const m = rest.match(/^ {0,3}> ?/);
+    if (!m) break;
+    rest = rest.slice(m[0].length);
+    depth++;
+  }
+  return { depth, rest };
+}
+
 function extractFences(text) {
   const lines = text.split(/\r?\n/);
   const fences = [];
   let open = null;
+  const emit = () => {
+    fences.push({ lang: open.lang, flags: open.flags, startLine: open.startLine, code: open.code.join("\n") });
+    open = null;
+  };
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(\s*)(`{3,}|~{3,})(.*)$/);
-    if (!open) {
-      if (m) {
-        const info = m[3].trim();
-        const [lang, ...flags] = info.split(/\s+/);
-        open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [] };
+    const line = lines[i];
+    if (open) {
+      let content = line;
+      if (open.bqDepth > 0) {
+        const { depth, rest } = stripBlockquotePrefix(line, open.bqDepth);
+        if (depth < open.bqDepth) {
+          // Fenced blocks have no lazy continuation: losing the container
+          // prefix closes the blockquote, ending the fence with it. Emit the
+          // collected content (r3 EOF rationale — compile what readers see),
+          // then fall through so this line is reprocessed in normal flow.
+          emit();
+        } else {
+          content = rest;
+        }
       }
-    } else if (m && m[2][0] === open.fence[0] && m[2].length >= open.fence.length && m[3].trim() === "") {
-      fences.push({ lang: open.lang, flags: open.flags, startLine: open.startLine, code: open.code.join("\n") });
-      open = null;
-    } else {
-      open.code.push(lines[i]);
+      if (open) {
+        const m = content.match(FENCE_LINE_RE);
+        if (m && m[2][0] === open.fence[0] && m[2].length >= open.fence.length && m[3].trim() === "") {
+          emit();
+        } else {
+          open.code.push(content);
+        }
+        continue;
+      }
+    }
+    const { depth: bqDepth, rest } = stripBlockquotePrefix(line, Infinity);
+    const m = rest.match(FENCE_LINE_RE);
+    if (m) {
+      const info = m[3].trim();
+      const [lang, ...flags] = info.split(/\s+/);
+      open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [], bqDepth };
     }
   }
   if (open) {
     // Unclosed fence at EOF — CommonMark runs it to end of input, so emit it
     // (see docstring); dropping it would let the final example skip the gate.
-    fences.push({ lang: open.lang, flags: open.flags, startLine: open.startLine, code: open.code.join("\n") });
+    emit();
   }
   return fences;
 }
