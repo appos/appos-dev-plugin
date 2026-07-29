@@ -505,15 +505,21 @@ Families at a glance (representative scopes; the d.ts is the full list):
 
 ### Deprecated legacy aliases
 
-Five legacy aliases are still accepted for backward compatibility but are
-NOT in the canonical set — never use them in new plugins:
+The SDK's `LegacyPermissionScope` union carries five legacy names for
+compile-time compatibility, but only ONE of them is actually accepted by
+the host: `network.fetch`, which the host's alias map normalizes to
+`network.outbound` at manifest parse time. The other four exist only in
+the TYPE union — they have no host-side entry, so declaring them grants
+nothing. Never use any of the five in new plugins; migrating plugins must
+REPLACE the four dead names with canonical scopes (only `network.fetch` is
+merely tolerated):
 
-| Alias | Status |
+| Alias | Host behavior |
 |---|---|
-| `network.fetch` | Normalized to `network.outbound` at manifest parse time |
-| `network` | Historical SDK-only name; use `network.outbound` |
-| `smartFolders` | Historical SDK-only name; smart folders need `filesystem.read` |
-| `webview` | Historical SDK-only name; use `ui.webPanel` |
+| `network.fetch` | The one real alias — normalized to `network.outbound` at manifest parse time |
+| `network` | SDK-type-only; no host-side entry, never granted. Use `network.outbound` |
+| `smartFolders` | SDK-type-only; no host-side entry, never granted. Smart folders need `filesystem.read` |
+| `webview` | SDK-type-only; no host-side entry, never granted. Use `ui.webPanel` |
 | `shell.uncontained` | NOT declarable — the T2 uncontained tier is inferred from `filesystem.readAll`, never requested |
 
 ### `{ scope, reason }` entries

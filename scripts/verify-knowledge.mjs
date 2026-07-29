@@ -31,7 +31,10 @@
  *  - Both CommonMark fence forms are recognized: backtick (```) AND tilde
  *    (~~~) runs of >= 3, closed by a run of the SAME character at least as
  *    long as the opener. The two are not interchangeable — inside an open
- *    tilde fence a backtick run is literal content, and vice versa.
+ *    tilde fence a backtick run is literal content, and vice versa. A fence
+ *    left unclosed at EOF extends through end of input per CommonMark and IS
+ *    compiled like any other fence (emit-at-EOF, not fail — matches what
+ *    every renderer shows readers).
  *  - Fences tagged `ts` / `typescript` are compiled as ISOLATED ES MODULES
  *    against the pinned package. The package ships no ambient globals, so a
  *    fence must `import type { ... } from "@appos.space/plugin-types"` for
@@ -304,6 +307,13 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * opener (with no trailing info string). Per CommonMark the two forms are not
  * interchangeable — inside an open tilde fence a backtick run is literal
  * content, and vice versa.
+ *
+ * A fence still open at EOF is EMITTED, not dropped: CommonMark treats an
+ * unclosed fence as extending through end of input, so every renderer shows
+ * that content as a code block — the gate must compile what readers see. (The
+ * alternative — failing on unclosed fences — was rejected because it would
+ * diverge from rendering semantics; emitting keeps the guarantee that no ts
+ * example can bypass compilation.)
  */
 function extractFences(text) {
   const lines = text.split(/\r?\n/);
@@ -323,6 +333,11 @@ function extractFences(text) {
     } else {
       open.code.push(lines[i]);
     }
+  }
+  if (open) {
+    // Unclosed fence at EOF — CommonMark runs it to end of input, so emit it
+    // (see docstring); dropping it would let the final example skip the gate.
+    fences.push({ lang: open.lang, flags: open.flags, startLine: open.startLine, code: open.code.join("\n") });
   }
   return fences;
 }

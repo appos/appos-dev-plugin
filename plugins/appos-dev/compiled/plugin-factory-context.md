@@ -223,9 +223,13 @@ void token; // keep for ctx.actions.unregister(token) on dispose
 ## WebView panel pattern (rich UI)
 
 Register the panel in `activate()`, passing the bundle-relative path to
-the HTML. Registration and handler methods return tokens — capture them
-(panel ids are disposable via `ctx.ui.unregister`; handler tokens are
-diagnostics-only — no handler-unregister API exists):
+the HTML. The SDK 3.0.0 types say registration and handler methods return
+token strings, but the shipped AppOS 1.0.0 host returns `undefined` from
+them at runtime — do NOT build teardown on the runtime value (it would
+call `ctx.ui.unregister(undefined)`, which cannot unregister the panel
+and may throw). The host removes the panel and its handlers automatically
+on plugin unload; a `disposed` flag is the mid-life teardown mechanism
+(`reference/patterns.md` §6):
 
 ```ts
 const panelToken = ctx.ui.registerWebPanel('download', {
@@ -234,7 +238,7 @@ const panelToken = ctx.ui.registerWebPanel('download', {
     htmlPath: 'webview/download/index.html',
     allowNavigation: false,
 });
-void panelToken; // → ctx.ui.unregister(panelToken) in your disposer
+void panelToken; // typed as string, but undefined on the 1.0.0 host — see reference/patterns.md §6
 ```
 
 Receive messages with `ctx.ui.onWebPanelMessage(panelId, handler)`
@@ -497,9 +501,14 @@ layout" in `reference/extension-api.md`.
   3.0.0** — `import type` every SDK name (TS2304 means you forgot).
 - **Action handlers get `exec`, not raw input** — read `exec.input`; assert
   it to a `type` alias, never an `interface` (TS2352).
-- **Registration methods return tokens** — slot ids (panels, toolbar items)
-  dispose via `ctx.ui.unregister`; handler tokens have NO unregister API —
-  a `disposed` flag guard is the disposal mechanism.
+- **Registration tokens are types-only on the 1.0.0 host** — SDK 3.0.0
+  types `registerWebPanel` / `onWebPanelMessage` / `onWebPanelRequest` as
+  returning token strings, but the shipped host returns `undefined` from
+  them at runtime. Never pass the runtime value to `ctx.ui.unregister`
+  (it takes slot-based contribution ids only, never handler tokens — no
+  handler-unregister API exists); the host removes panels + handlers on
+  plugin unload, and a `disposed` flag guard is the disposal mechanism
+  (`reference/patterns.md` §6).
 - **`ctx.ui.pipeShellToWebPanel`**, not `ctx.shell.pipeShellToWebPanel`.
 - **120-second shell cap** on `ctx.shell.execute` and
   `pipeShellToWebPanel`; long jobs need a resume loop. **`cwd` is
@@ -1037,15 +1046,21 @@ Families at a glance (representative scopes; the d.ts is the full list):
 
 ### Deprecated legacy aliases
 
-Five legacy aliases are still accepted for backward compatibility but are
-NOT in the canonical set — never use them in new plugins:
+The SDK's `LegacyPermissionScope` union carries five legacy names for
+compile-time compatibility, but only ONE of them is actually accepted by
+the host: `network.fetch`, which the host's alias map normalizes to
+`network.outbound` at manifest parse time. The other four exist only in
+the TYPE union — they have no host-side entry, so declaring them grants
+nothing. Never use any of the five in new plugins; migrating plugins must
+REPLACE the four dead names with canonical scopes (only `network.fetch` is
+merely tolerated):
 
-| Alias | Status |
+| Alias | Host behavior |
 |---|---|
-| `network.fetch` | Normalized to `network.outbound` at manifest parse time |
-| `network` | Historical SDK-only name; use `network.outbound` |
-| `smartFolders` | Historical SDK-only name; smart folders need `filesystem.read` |
-| `webview` | Historical SDK-only name; use `ui.webPanel` |
+| `network.fetch` | The one real alias — normalized to `network.outbound` at manifest parse time |
+| `network` | SDK-type-only; no host-side entry, never granted. Use `network.outbound` |
+| `smartFolders` | SDK-type-only; no host-side entry, never granted. Smart folders need `filesystem.read` |
+| `webview` | SDK-type-only; no host-side entry, never granted. Use `ui.webPanel` |
 | `shell.uncontained` | NOT declarable — the T2 uncontained tier is inferred from `filesystem.readAll`, never requested |
 
 ### `{ scope, reason }` entries

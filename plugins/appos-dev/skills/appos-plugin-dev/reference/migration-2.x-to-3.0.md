@@ -274,6 +274,30 @@ byte-verbatim in `reference/plugin-api/` here), not the package README.
 
 ---
 
+## Manifest permissions: replace dead legacy scope names
+
+Not a compile break — the SDK's `LegacyPermissionScope` union deliberately
+keeps five pre-3.0 names, so a 2.x `plugin.json` (and typed helpers around
+it) still type-checks with them — but only ONE of the five is actually
+accepted by the host:
+
+- `network.fetch` is the single real alias: the host's alias map
+  normalizes it to `network.outbound` at manifest parse time. Tolerated,
+  but rename it while you are in the manifest anyway.
+- `network`, `smartFolders`, and `webview` are SDK-type-only names with no
+  host-side entry — declaring them grants nothing. REPLACE them with
+  `network.outbound`, `filesystem.read` (smart folders), and
+  `ui.webPanel` respectively.
+- `shell.uncontained` was never declarable: the T2 uncontained shell tier
+  is inferred from `filesystem.readAll`, never requested. Delete it.
+
+A migrated plugin that keeps the four dead names compiles clean and then
+runs without the capabilities it thinks it declared — grep your
+`plugin.json` for all five (`network.fetch`, `network`, `smartFolders`,
+`webview`, `shell.uncontained`) and keep only canonical scopes.
+
+---
+
 ## What did NOT change
 
 Do not "migrate" these — they are live host contracts, identical in 2.x

@@ -14,7 +14,9 @@
 #      cli-chat-system-prompt.md copy) instead of regenerating.
 #
 # Also fails when compiled/ contains a .md file the manifest does not list
-# (unaccounted drift).
+# (unaccounted drift), or when the manifest itself is not parseable JSON
+# (truncated / unbalanced braces — downstream tooling could not read it even
+# if the hash-entry lines survived).
 #
 # The manifest and every file in compiled/ are written by the AppOS-Desktop
 # repo's scripts/compile-factory-context.sh (ownership: the factory context
@@ -43,6 +45,22 @@ if [[ ! -f "$MANIFEST" ]]; then
     echo "error: $MANIFEST not found — run AppOS-Desktop's scripts/compile-factory-context.sh" >&2
     exit 2
 fi
+
+# Structurally validate the manifest as JSON BEFORE trusting any hash-entry
+# lines. A truncated or brace-unbalanced manifest can still match the per-line
+# entry regex below, which would let this gate report OK on a manifest that
+# downstream JSON consumers cannot parse. node is guaranteed in CI (setup-node
+# + npm ci in verify.yml) and on dev machines; jq is not.
+if ! command -v node >/dev/null 2>&1; then
+    echo "error: node not available — required to validate $MANIFEST as JSON" >&2
+    exit 2
+fi
+json_err="$(node -e 'try { JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); } catch (e) { console.error(e.message); process.exit(1); }' "$MANIFEST" 2>&1)" || {
+    echo "DRIFT: $MANIFEST is not valid JSON: $json_err" >&2
+    echo "  (truncated or hand-edited?) Regenerate from an AppOS-Desktop checkout:" >&2
+    echo "  ./scripts/compile-factory-context.sh   (writes compiled/ + manifest here)" >&2
+    exit 1
+}
 
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then
