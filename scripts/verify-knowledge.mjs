@@ -31,7 +31,10 @@
  *  - Both CommonMark fence forms are recognized: backtick (```) AND tilde
  *    (~~~) runs of >= 3, closed by a run of the SAME character at least as
  *    long as the opener. The two are not interchangeable — inside an open
- *    tilde fence a backtick run is literal content, and vice versa. A fence
+ *    tilde fence a backtick run is literal content, and vice versa. Openers
+ *    and closers tolerate at most 3 spaces of indentation (per container
+ *    level) — a 4-space-indented ```-run is an indented code line / fence
+ *    content, never an opener or closer. A fence
  *    left unclosed at EOF extends through end of input per CommonMark and IS
  *    compiled like any other fence (emit-at-EOF, not fail — matches what
  *    every renderer shows readers).
@@ -356,8 +359,18 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * emitted (same reader-sees-it rationale as the EOF rule) and the line is
  * reprocessed in normal document flow, where it may itself open a new fence
  * (matches CommonMark's `> ```` / `foo` / ```` ` example).
+ *
+ * Indentation (CommonMark §4.5): fence openers AND closers may be preceded
+ * by AT MOST 3 spaces — 4+ spaces (or a tab, which counts as 4 columns) make
+ * the line an indented code line, not a fence. Inside an open fence a
+ * 4-space-indented ```-run is therefore CONTENT, not a closer (accepting it
+ * as a closer would end the fence early and let invalid TS after it escape
+ * compilation). The rule applies to the REMAINDER after container-prefix
+ * stripping, i.e. per container level: `parseContainerPrefix` /
+ * `stripContainerPrefix` remove blockquote markers and list content columns
+ * first, then FENCE_LINE_RE's ` {0,3}` bound applies to what's left.
  */
-const FENCE_LINE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+const FENCE_LINE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 
 /** One CommonMark blockquote marker: up to 3 spaces, `>`, one optional space. */
 const BLOCKQUOTE_MARKER_RE = /^ {0,3}> ?/;

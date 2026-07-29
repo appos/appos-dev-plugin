@@ -23,6 +23,21 @@
 # "sources" section fails the zero-count check instead of passing on stale
 # raw-line matches.
 #
+# Beyond per-entry hashes, the manifest's key SETS must exactly equal the
+# compile-input sets the generator enumerates (a dropped entry would
+# otherwise silently exempt that file from the gate forever):
+#   sources   == SKILL.md + reference/extension-api.md + reference/patterns.md
+#                + reference/plugin-api/index.d.ts + one entry per barrel
+#                module ('export * from "./<name>";' line) of index.d.ts —
+#                derived here from THIS repo's index.d.ts exactly the way
+#                compile-factory-context.sh enumerates its inputs. Desktop-
+#                owned files (cli-chat-system-prompt.md) are deliberately NOT
+#                sources in this manifest — they appear under artifacts only.
+#   artifacts == exactly { cli-chat-system-prompt.md,
+#                plugin-factory-context.md } (the fixed pair the generator
+#                writes).
+# Missing, extra, or renamed keys on either side fail with a per-key diff.
+#
 # The manifest and every file in compiled/ are written by the AppOS-Desktop
 # repo's scripts/compile-factory-context.sh (ownership: the factory context
 # flows dev-plugin -> Desktop; cli-chat-system-prompt.md flows Desktop ->
@@ -132,6 +147,7 @@ FAIL=0
 artifact_count=0
 source_count=0
 declare -a MANIFEST_ARTIFACTS=()
+declare -a MANIFEST_SOURCES=()
 
 while IFS=$'\t' read -r section rel want; do
     case "$section" in
@@ -145,6 +161,7 @@ while IFS=$'\t' read -r section rel want; do
             file="$SKILL_DIR/$rel"
             kind="source (changed without regenerating compiled/)"
             source_count=$((source_count + 1))
+            MANIFEST_SOURCES+=("$rel")
             ;;
         *)
             continue
@@ -169,6 +186,92 @@ if [[ $artifact_count -eq 0 || $source_count -eq 0 ]]; then
     echo "error: $MANIFEST parsed with $artifact_count artifacts / $source_count sources — manifest malformed?" >&2
     exit 2
 fi
+
+# ── Key-set equality vs the generator's compile-input enumeration ─────────────
+# A manifest entry that is silently DROPPED (not just stale) would otherwise
+# pass every per-entry hash check above: the file it used to cover could then
+# change forever without tripping this gate. So require the manifest key sets
+# to equal, one-to-one, what compile-factory-context.sh enumerates:
+#   sources: 3 fixed prose files + index.d.ts + one <name>.d.ts per barrel
+#            module of THIS repo's index.d.ts (same derivation the generator
+#            uses; the barrel itself lives in this repo, so no cross-repo read)
+#   artifacts: the fixed pair the generator writes
+declare -a EXPECTED_SOURCES=(
+    "SKILL.md"
+    "reference/extension-api.md"
+    "reference/patterns.md"
+    "reference/plugin-api/index.d.ts"
+)
+declare -a EXPECTED_ARTIFACTS=(
+    "cli-chat-system-prompt.md"
+    "plugin-factory-context.md"
+)
+
+INDEX_DTS="$SKILL_DIR/reference/plugin-api/index.d.ts"
+skip_source_set_check=0
+if [[ ! -f "$INDEX_DTS" ]]; then
+    # Cannot derive the expected mirror-module set. This is drift in its own
+    # right (the generator hard-requires index.d.ts); skip the set comparison
+    # so its output does not mis-flag legitimate d.ts manifest entries.
+    echo "DRIFT: $INDEX_DTS is missing — cannot derive the expected mirror-module source set" >&2
+    FAIL=1
+    skip_source_set_check=1
+else
+    barrel_count=0
+    while IFS= read -r name; do
+        EXPECTED_SOURCES+=("reference/plugin-api/$name.d.ts")
+        barrel_count=$((barrel_count + 1))
+    done < <(sed -n 's/^export \* from "\.\/\(.*\)";$/\1/p' "$INDEX_DTS")
+    if [[ $barrel_count -eq 0 ]]; then
+        # Mirrors the generator, which refuses an empty barrel outright.
+        echo "error: no 'export * from \"./…\";' lines found in $INDEX_DTS — cannot derive expected source set" >&2
+        exit 2
+    fi
+fi
+
+if [[ $skip_source_set_check -eq 0 ]]; then
+    for exp in "${EXPECTED_SOURCES[@]}"; do
+        found=0
+        for rel in "${MANIFEST_SOURCES[@]}"; do
+            [[ "$rel" == "$exp" ]] && { found=1; break; }
+        done
+        if [[ $found -eq 0 ]]; then
+            echo "DRIFT: manifest \"sources\" is missing \"$exp\" — a compile input is not covered by this gate" >&2
+            FAIL=1
+        fi
+    done
+    for rel in "${MANIFEST_SOURCES[@]}"; do
+        found=0
+        for exp in "${EXPECTED_SOURCES[@]}"; do
+            [[ "$rel" == "$exp" ]] && { found=1; break; }
+        done
+        if [[ $found -eq 0 ]]; then
+            echo "DRIFT: manifest \"sources\" lists unexpected \"$rel\" — not a compile input of compile-factory-context.sh" >&2
+            FAIL=1
+        fi
+    done
+fi
+
+for exp in "${EXPECTED_ARTIFACTS[@]}"; do
+    found=0
+    for rel in "${MANIFEST_ARTIFACTS[@]}"; do
+        [[ "$rel" == "$exp" ]] && { found=1; break; }
+    done
+    if [[ $found -eq 0 ]]; then
+        echo "DRIFT: manifest \"artifacts\" is missing \"$exp\" — a generated artifact is not covered by this gate" >&2
+        FAIL=1
+    fi
+done
+for rel in "${MANIFEST_ARTIFACTS[@]}"; do
+    found=0
+    for exp in "${EXPECTED_ARTIFACTS[@]}"; do
+        [[ "$rel" == "$exp" ]] && { found=1; break; }
+    done
+    if [[ $found -eq 0 ]]; then
+        echo "DRIFT: manifest \"artifacts\" lists unexpected \"$rel\" — not an artifact compile-factory-context.sh writes" >&2
+        FAIL=1
+    fi
+done
 
 # Unaccounted files in compiled/ (anything .md the manifest does not list).
 for f in "$COMPILED_DIR"/*.md; do
