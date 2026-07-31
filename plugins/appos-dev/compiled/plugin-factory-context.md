@@ -516,8 +516,11 @@ layout" in `reference/extension-api.md`.
 - **Max 2 WebView panels per plugin, 6 globally.**
 - **Cache returns deserialized values** — no `JSON.parse` on `cache.get()`;
   pass `{ persist: true }` for durability.
-- **`process.terminate()` only signals the direct child** — subprocesses
-  orphan on cancel.
+- **No in-flight shell cancellation** — `ShellAPI` exposes only
+  `execute()`, and `ShellExecuteResult` carries no PID or process handle,
+  so a running command cannot be terminated from plugin code. It ends
+  only by exiting on its own or hitting the 120-second cap; keep long
+  jobs short and resumable so an abandoned run bounds itself.
 - **No DOM/Node APIs in main.js** — only webviews have a DOM; guard timers
   with `typeof setTimeout === 'function'`. **Webview CSP blocks inline
   JS/CSS** — external files only, served via `plugin-panel://`.

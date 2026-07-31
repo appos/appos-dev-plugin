@@ -358,7 +358,7 @@ bridge.onShellChunk((chunk) => {
 - `cwd` must be an absolute, tilde-expanded path. T1 sandbox rejects relative paths and `~`.
 - Always pass `--ignore-config` (or the tool's equivalent) so ambient user config can't inject flags.
 - Chunks fan out to every instance of the panel — if the user has the panel open in two panes, both see the same chunks. Filter with `envelope.instanceId` if you need isolation.
-- The child process is killed if the plugin deactivates. Cancellation from the UI requires your plugin to call `ctx.shell.processes.terminate(pid)` — but only the direct child dies; subprocesses (ffmpeg spawned by yt-dlp) orphan.
+- The child process is killed if the plugin deactivates — but there is NO mid-run cancellation API in SDK 3.0.0. `ShellAPI` exposes only `execute()`, and `ShellExecuteResult` carries no PID or process handle, so a "Cancel" button in your panel cannot kill the process. The command runs until it exits or hits the 120-second cap; keep jobs short/resumable so an abandoned run bounds itself.
 
 ## Multi-instance isolation
 

@@ -36,7 +36,7 @@ appos-dev-plugin/
 │       │   └── webview-panels/
 │       │       └── SKILL.md         # Focused WebView authoring skill
 │       └── compiled/        # GENERATED context artifacts for the AppOS host — do not hand-edit
-├── scripts/                 # verify-knowledge.mjs + check-sdk-freshness.sh (CI gates)
+├── scripts/                 # verify-knowledge.mjs + check-sdk-freshness.sh + check-compiled-freshness.sh (CI gates)
 ├── package.json             # exact-pinned toolchain for the gates (npm ci)
 ├── package-lock.json
 ├── README.md
@@ -72,7 +72,7 @@ Before editing anything, be aware of these external sources of truth:
 2. If the SDK surface changed, check https://github.com/appos/plugin-sdk (`packages/plugin-types`) — or the published `@appos.space/plugin-types` npm package — for the current type definitions.
 3. Keep examples copyable — prefer full working snippets over fragments.
 4. When documenting a gotcha, include a `**Why**:` line with the root cause so future-you can judge edge cases.
-5. Run the knowledge gate before committing: `npm ci` once, then `node scripts/verify-knowledge.mjs` (type-checks every `ts` fence against the pinned SDK, plus a stale-identifier denylist and count-string consistency; opt-out convention documented in the script header) and `scripts/check-sdk-freshness.sh` (mirror byte-equality).
+5. Run the CI gates before committing: `npm ci` once, then `npm run check` — the same sequence CI runs: `scripts/check-sdk-freshness.sh` (mirror byte-equality), `node scripts/verify-knowledge.mjs` (type-checks every `ts` fence against the pinned SDK, plus a stale-identifier denylist and count-string consistency; opt-out convention documented in the script header), and `scripts/check-compiled-freshness.sh` (compiled/ artifacts match their manifest, both directions).
 
 ## When adding new commands/agents/skills
 

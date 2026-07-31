@@ -28,14 +28,22 @@
 #
 # Update mode (--update) regenerates the mirror + INDEX.md + .sdk-integrity
 # from the published tarball for the version in package.json devDependencies
-# (or $1 after --update). Bump the devDependency + lockfile first, then run
-# --update, then commit everything together.
+# (or $1 after --update). Bump the devDependency + lockfile FIRST:
+#   npm install --save-dev --save-exact @appos.space/plugin-types@<version>
+# then run --update, then commit everything together. --update REFUSES to run
+# when the resolved version does not match BOTH package.json and
+# package-lock.json, or when the lockfile integrity differs from the registry
+# dist.integrity it is about to pin — so a successful update always leaves the
+# whole toolchain coherent and the next check-mode run cannot fail Gate 0 on a
+# desynchronized state.
 #
 # Usage:
 #   scripts/check-sdk-freshness.sh                # verify (CI + local)
 #   scripts/check-sdk-freshness.sh --update       # regenerate mirror for the
 #                                                 # version pinned in package.json
-#   scripts/check-sdk-freshness.sh --update 3.1.0 # regenerate for an explicit version
+#   scripts/check-sdk-freshness.sh --update 3.1.0 # regenerate for an explicit
+#                                                 # version (must already match
+#                                                 # package.json + lockfile)
 #   scripts/check-sdk-freshness.sh --help
 #
 # Exit codes:
@@ -58,7 +66,7 @@ INDEX_FILE="$MIRROR_DIR/INDEX.md"
 MODE="check"
 REQ_VERSION=""
 case "${1:-}" in
-  --help|-h) sed -n '2,40p' "${BASH_SOURCE[0]}"; exit 0 ;;
+  --help|-h) sed -n '2,48p' "${BASH_SOURCE[0]}"; exit 0 ;;
   --update)  MODE="update"; REQ_VERSION="${2:-}" ;;
   "")        ;;
   *) echo "[check-sdk-freshness] ERROR unknown argument: $1 (see --help)" >&2; exit 2 ;;
@@ -97,10 +105,26 @@ surface_line() {
 # Resolve the version under test.
 # ---------------------------------------------------------------------------
 if [[ "$MODE" == "update" ]]; then
+  DEVDEP_VERSION="$(node -p "require('./package.json').devDependencies?.['$PKG'] ?? ''")" || exit 2
+  LOCK_VERSION="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.version ?? ''")" || exit 2
   if [[ -n "$REQ_VERSION" ]]; then
     VERSION="$REQ_VERSION"
   else
-    VERSION="$(node -p "require('./package.json').devDependencies['$PKG']")" || exit 2
+    VERSION="$DEVDEP_VERSION"
+  fi
+  # Update-mode pre-flight (version prongs of check-mode Gate 0): the resolved
+  # version must already be what the npm toolchain installs. Without this, an
+  # explicit `--update <version>` that differs from the devDependency/lockfile
+  # would regenerate the mirror + pin and exit 0 while verify-knowledge.mjs
+  # still type-checks against the OLD `npm ci`-installed package — and the very
+  # next check-mode run would fail Gate 0. Reject up front instead; this script
+  # never mutates package.json/package-lock.json.
+  if [[ -z "$VERSION" || "$DEVDEP_VERSION" != "$VERSION" || "$LOCK_VERSION" != "$VERSION" ]]; then
+    echo "[check-sdk-freshness] ERROR --update version '${VERSION:-<none>}' does not match the installed npm toolchain:" >&2
+    echo "  package.json devDependency $PKG = '${DEVDEP_VERSION:-<missing>}'" >&2
+    echo "  package-lock.json resolves $PKG@'${LOCK_VERSION:-<missing>}'" >&2
+    echo "  fix: npm install --save-dev --save-exact '$PKG@${VERSION:-<version>}', then re-run --update and commit everything together" >&2
+    exit 2
   fi
 else
   if [[ ! -f "$PIN_FILE" ]]; then
@@ -185,6 +209,19 @@ if [[ "$MODE" == "update" ]]; then
     echo "[check-sdk-freshness] FAIL downloaded tarball bytes do not hash to the registry dist.integrity — refusing to mirror" >&2
     echo "  registry = $REGISTRY_INTEGRITY" >&2
     echo "  tarball  = $TARBALL_INTEGRITY" >&2
+    exit 1
+  fi
+
+  # Update-mode pre-flight (integrity prong of check-mode Gate 0): the lockfile
+  # entry `npm ci` installs must carry the SAME integrity this update is about
+  # to pin. Combined with the version pre-flight above, a successful --update
+  # therefore leaves every Gate 0 input coherent by construction.
+  LOCK_INTEGRITY="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.integrity ?? ''")" || exit 2
+  if [[ "$LOCK_INTEGRITY" != "$REGISTRY_INTEGRITY" ]]; then
+    echo "[check-sdk-freshness] FAIL package-lock.json integrity for $PKG@$VERSION != registry dist.integrity — refusing to update" >&2
+    echo "  lockfile = ${LOCK_INTEGRITY:-<missing>}" >&2
+    echo "  registry = $REGISTRY_INTEGRITY" >&2
+    echo "  fix: npm install --save-dev --save-exact '$PKG@$VERSION' (refreshes the lockfile entry), then re-run --update" >&2
     exit 1
   fi
 

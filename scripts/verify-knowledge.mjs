@@ -45,8 +45,20 @@
  *  - CommonMark container prefixes are supported: a fence may open inside
  *    blockquotes (`> ```ts`, nested `> > ```ts`) and/or list items
  *    (`- ```ts`, ordered `1. ```ts`), composed in any nesting order
- *    (`> - ```ts`). The opener's container-token sequence is recorded with
- *    the open fence and stripped from contained lines: blockquote tokens
+ *    (`> - ```ts`). Container state is carried ACROSS lines: a container
+ *    opened on an earlier line stays open, so a fence on a CONTINUATION line
+ *    of a list item is recognized even when the item's content column is >= 4
+ *    (e.g. `10. Step ten` followed by a 4-space-indented ```ts — the raw
+ *    indentation alone would fail the ` {0,3}` opener bound, but the open
+ *    item's content column is stripped first). Open containers persist per
+ *    CommonMark: blank lines stay inside a list item (but end a blockquote,
+ *    whose `>` marker is required on every line); a non-blank line short of
+ *    a list content column ends the container UNLESS a paragraph is open and
+ *    the line cannot start a new block (lazy continuation — approximated by
+ *    testing the interrupters that matter here: fence lines, list/blockquote
+ *    markers, ATX headings, thematic breaks). The opener's container-token
+ *    sequence is recorded with the open fence and stripped from contained
+ *    lines: blockquote tokens
  *    require their `>` marker on every line; list tokens require indentation
  *    to the item's CONTENT COLUMN (marker width + following spaces), measured
  *    in columns per §2.2 (tabs expand to 4-column stops) and stripped by the
@@ -59,8 +71,14 @@
  *    the content collected up to that point is still compiled, mirroring the
  *    unclosed-at-EOF rule, and the line is reprocessed in normal flow.
  *  - Fences tagged `ts` / `typescript` are compiled as ISOLATED ES MODULES
- *    against the pinned package. The package ships no ambient globals, so a
- *    fence must `import type { ... } from "@appos.space/plugin-types"` for
+ *    against the pinned package — each fence in its OWN ts.Program, so the
+ *    isolation is structural: a `declare global` augmentation or ambient
+ *    `declare module` in one fence can never leak into another fence's
+ *    compile (a snippet that omits its required local ambient declaration
+ *    fails here exactly as it fails when copied out alone). The lib + SDK
+ *    d.ts SourceFiles are parsed once via a shared memoized CompilerHost, so
+ *    per-fence programs stay cheap. The package ships no ambient globals, so
+ *    a fence must `import type { ... } from "@appos.space/plugin-types"` for
  *    any type NAME it references — exactly like real plugin source. The
  *    exact-pinned sibling packages `@appos.space/plugin-utils` and
  *    `@appos.space/view-builders` are also installed, so fences may import
@@ -87,8 +105,10 @@
  *  1. exported-name-set diff — the mirror's index.d.ts export set must be
  *     IDENTICAL to the installed package's (names added/removed reported).
  *  2. fence type-check — every non-opted-out ts fence in tiers (a)+(b)
- *     compiles clean (tsc 5.9.3, strict, noEmit; diagnostics mapped back to
- *     the markdown file + line). Diagnostics attributed to a NON-fence file
+ *     compiles clean (tsc 5.9.3, strict, noEmit; ONE Program PER FENCE so
+ *     ambient/global declarations cannot leak between examples; diagnostics
+ *     mapped back to the markdown file + line). Diagnostics attributed to a
+ *     NON-fence file
  *     (installed SDK d.ts, another imported module, lib) or to no file at
  *     all (options/global) are NOT discarded — each distinct one is
  *     reported once as a "dependency diagnostic" / "global diagnostic"
@@ -350,8 +370,15 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * Container prefixes (CommonMark §5.1 blockquotes + list items): a fence
  * opener may sit inside blockquotes (`> ```ts`, nested `> > ```ts`) and/or
  * list items (`- ```ts`, `* ```ts`, `+ ```ts`, ordered `1. ```ts` /
- * `1) ```ts`), composed in any nesting order (`> - ```ts`). The opener
- * records its container-token SEQUENCE — one token per marker, in order:
+ * `1) ```ts`), composed in any nesting order (`> - ```ts`) — AND the
+ * containers need not open on the fence's own line: document-flow container
+ * state carries across lines (matchOpenContainers), so a fence on a list
+ * item's CONTINUATION line is recognized by stripping the open item's
+ * content column first. Without that state, an item whose content column is
+ * >= 4 (`10. Step ten` then a 4-space-indented ```ts) would leave the opener
+ * looking like an indented code line and the example would silently skip the
+ * gate. The opener records its container-token SEQUENCE — carried-over
+ * tokens first, then any markers on the opener line itself, in order:
  * blockquote tokens (`>` preceded by up to 3 spaces of indent, followed by
  * one optional space) and list tokens carrying the item's CONTENT COLUMN
  * (up to 3 spaces of indent + marker width + at least one following space).
@@ -511,10 +538,98 @@ function stripContainerPrefix(line, tokens) {
   return { closed: false, content: rest };
 }
 
+/** ATX heading opener — one of the block forms that can interrupt a paragraph. */
+const ATX_HEADING_RE = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+/** Thematic break (`---` / `***` / `___` with interior spaces allowed). */
+const THEMATIC_BREAK_RE = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
+
+/**
+ * Can `rest` (a line remainder at the current container level) start a new
+ * block, i.e. interrupt an open paragraph? Used by the lazy-continuation rule
+ * in matchOpenContainers: an under-indented line that CANNOT interrupt is
+ * paragraph continuation text and keeps every open container alive; one that
+ * CAN interrupt ends the container at that level. This is the CommonMark
+ * interrupter set that matters for fence extraction (fence lines, list /
+ * blockquote markers, ATX headings, thematic breaks); rarer interrupters
+ * (HTML blocks types 1–6, the ordered-marker must-start-at-1 nuance) are
+ * deliberately approximated — every divergence errs toward ending the
+ * container, i.e. toward how the scanner treated these lines before
+ * cross-line state existed.
+ */
+function canInterruptParagraph(rest) {
+  return (
+    FENCE_LINE_RE.test(rest) ||
+    BLOCKQUOTE_MARKER_RE.test(rest) ||
+    LIST_MARKER_RE.test(rest) ||
+    ATX_HEADING_RE.test(rest) ||
+    THEMATIC_BREAK_RE.test(rest)
+  );
+}
+
+/**
+ * Match `line` against the DOCUMENT-FLOW container stack carried over from
+ * earlier lines (fence-opener side of the cross-line state — the in-fence
+ * side is stripContainerPrefix). Walks the stack tokens in order:
+ *  - blockquote: `>` marker present → strip and keep; missing → the
+ *    blockquote ends here (subject to the lazy rule below) — even on blank
+ *    lines, which end a blockquote per CommonMark.
+ *  - list item: blank line → stays inside the item (kept WITHOUT stripping);
+ *    non-blank indented to the content column (measured in columns per §2.2,
+ *    same as stripContainerPrefix) → strip and keep; under-indented → the
+ *    item ends here, subject to the lazy rule.
+ *  - lazy rule (CommonMark lazy continuation): when a paragraph is open and
+ *    the failing line cannot interrupt a paragraph, EVERY container stays
+ *    open and the line is pure paragraph text — { lazy: true }.
+ * Returns { kept, rest, lazy }: `kept` = surviving token count (callers slice
+ * the stack), `rest` = the line with the surviving prefix stripped.
+ */
+function matchOpenContainers(line, stack, paragraphOpen) {
+  let rest = line;
+  let absCol = 0; // absolute line column at which `rest` begins
+  let kept = 0;
+  for (const t of stack) {
+    if (t.kind === "bq") {
+      const m = rest.match(BLOCKQUOTE_MARKER_RE);
+      if (m) {
+        rest = rest.slice(m[0].length);
+        absCol += m[0].length; // every admitted char (space, `>`) is width-1
+        kept += 1;
+        continue;
+      }
+    } else {
+      if (rest.trim() === "") {
+        // Blank lines stay inside a list item (deeper blockquote tokens, which
+        // need their marker even on blanks, still pop on their own iteration).
+        kept += 1;
+        continue;
+      }
+      if (indentColumns(rest, absCol) >= t.col) {
+        rest = stripColumns(rest, t.col, absCol);
+        absCol += t.col;
+        kept += 1;
+        continue;
+      }
+    }
+    if (paragraphOpen && rest.trim() !== "" && !canInterruptParagraph(rest)) {
+      return { kept: stack.length, rest, lazy: true };
+    }
+    return { kept, rest, lazy: false };
+  }
+  return { kept, rest, lazy: false };
+}
+
 function extractFences(text) {
   const lines = text.split(/\r?\n/);
   const fences = [];
   let open = null;
+  // Document-flow container state (see docstring + matchOpenContainers): list
+  // items / blockquotes opened on EARLIER lines stay on this stack so a fence
+  // opener on a continuation line (e.g. `10. Step ten` then a 4-space-indented
+  // ```ts — content column 4) is recognized; without it the raw indentation
+  // fails FENCE_LINE_RE's ` {0,3}` bound and the example silently skips the
+  // gate. `paragraphOpen` gates the lazy-continuation rule.
+  let stack = [];
+  let paragraphOpen = false;
   const emit = () => {
     fences.push({ lang: open.lang, flags: open.flags, startLine: open.startLine, code: open.code.join("\n") });
     open = null;
@@ -546,12 +661,25 @@ function extractFences(text) {
         continue;
       }
     }
-    const { tokens, rest } = parseContainerPrefix(line);
+    // Document flow (also reached when a container loss just ended a fence —
+    // the line reprocesses here). Carry over container state from earlier
+    // lines, then parse any NEW markers this line introduces.
+    const carried = matchOpenContainers(line, stack, paragraphOpen);
+    stack = stack.slice(0, carried.kept);
+    if (carried.lazy) {
+      paragraphOpen = true;
+      continue; // paragraph continuation text — cannot open a fence or a container
+    }
+    const { tokens, rest } = parseContainerPrefix(carried.rest);
+    stack.push(...tokens);
     const m = rest.match(FENCE_LINE_RE);
     if (m) {
       const info = m[3].trim();
       const [lang, ...flags] = info.split(/\s+/);
-      open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [], containers: tokens };
+      open = { fence: m[2], indent: m[1].length, lang: (lang || "").toLowerCase(), flags, startLine: i + 2, code: [], containers: stack.slice() };
+      paragraphOpen = false;
+    } else {
+      paragraphOpen = rest.trim() !== "";
     }
   }
   if (open) {
@@ -590,48 +718,73 @@ for (const mdFile of fenceFiles) {
 }
 
 if (fenceUnits.length) {
-  const program = ts.createProgram(
-    fenceUnits.map((u) => u.virtualPath),
-    {
-      strict: true,
-      noEmit: true,
-      skipLibCheck: true,
-      types: [], // no @types/* — keeps diagnostics deterministic across machines
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      lib: ["lib.es2022.d.ts", "lib.dom.d.ts"], // DOM for WebView-panel snippets
-    },
-  );
+  const compilerOptions = {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    types: [], // no @types/* — keeps diagnostics deterministic across machines
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    lib: ["lib.es2022.d.ts", "lib.dom.d.ts"], // DOM for WebView-panel snippets
+  };
+  // ONE PROGRAM PER FENCE — the isolation guarantee is structural. With all
+  // fences as roots of a single Program, a `declare global` augmentation or
+  // ambient `declare module` in one fence is visible to every other fence
+  // (module symbol merging is program-wide), so a snippet that omitted its
+  // required local ambient declaration (e.g. the Window.twopanez teaching
+  // declaration) would compile here yet fail when copied out alone — a silent
+  // false green. Per-fence programs make cross-fence leakage impossible: no
+  // other fence file is in the program at all.
+  //
+  // Cost control: a shared CompilerHost memoizes getSourceFile so the lib +
+  // installed SDK d.ts files are read/parsed/bound ONCE and reused across all
+  // programs (SourceFile reuse across programs with identical options is the
+  // standard LanguageService/documentRegistry pattern). Measured on this
+  // corpus (63 fences): ~0.6s wall single-program → ~0.9s wall per-fence —
+  // the isolation is essentially free.
+  const host = ts.createCompilerHost(compilerOptions);
+  const sourceFileCache = new Map();
+  const hostGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, ...rest) => {
+    const key = path.resolve(fileName);
+    if (!sourceFileCache.has(key)) sourceFileCache.set(key, hostGetSourceFile(fileName, ...rest));
+    return sourceFileCache.get(key);
+  };
   const byPath = new Map(fenceUnits.map((u) => [path.resolve(u.virtualPath), u]));
   // Diagnostics NOT attributed to a fence virtual file (installed SDK d.ts,
   // another imported module, lib, or file-less options/global diagnostics)
   // must surface as failures too: if a dependency of the fences is broken,
   // the compiler never reaches the examples and dropping these diagnostics
-  // would false-green the whole gate. Each distinct one is reported once.
+  // would false-green the whole gate. Each distinct one is reported once —
+  // the dedupe set spans ALL per-fence programs, so a broken dependency
+  // surfaces once, not once per fence.
   const nonFenceSeen = new Set();
-  for (const diag of ts.getPreEmitDiagnostics(program)) {
-    const msg = ts.flattenDiagnosticMessageText(diag.messageText, " ");
-    if (!diag.file) {
-      const key = `global::${diag.code}::${msg}`;
-      if (nonFenceSeen.has(key)) continue;
-      nonFenceSeen.add(key);
-      report("(global)", null, `global diagnostic TS${diag.code}: ${msg} — fence type-check program is unhealthy; fence results are not trustworthy`);
-      continue;
-    }
-    const unit = byPath.get(path.resolve(diag.file.fileName));
-    if (!unit) {
-      const depFile = path.relative(REPO_ROOT, diag.file.fileName);
+  for (const unit of fenceUnits) {
+    const program = ts.createProgram([unit.virtualPath], compilerOptions, host);
+    for (const diag of ts.getPreEmitDiagnostics(program)) {
+      const msg = ts.flattenDiagnosticMessageText(diag.messageText, " ");
+      if (!diag.file) {
+        const key = `global::${diag.code}::${msg}`;
+        if (nonFenceSeen.has(key)) continue;
+        nonFenceSeen.add(key);
+        report("(global)", null, `global diagnostic TS${diag.code}: ${msg} — fence type-check program is unhealthy; fence results are not trustworthy`);
+        continue;
+      }
+      const diagUnit = byPath.get(path.resolve(diag.file.fileName));
+      if (!diagUnit) {
+        const depFile = path.relative(REPO_ROOT, diag.file.fileName);
+        const { line } = diag.file.getLineAndCharacterOfPosition(diag.start ?? 0);
+        const key = `${depFile}::${line}::${diag.code}::${msg}`;
+        if (nonFenceSeen.has(key)) continue;
+        nonFenceSeen.add(key);
+        report(depFile, line + 1, `dependency diagnostic TS${diag.code}: ${msg} — error in a file the fences depend on (not in any fence); fence results are not trustworthy until this is fixed`);
+        continue;
+      }
       const { line } = diag.file.getLineAndCharacterOfPosition(diag.start ?? 0);
-      const key = `${depFile}::${line}::${diag.code}::${msg}`;
-      if (nonFenceSeen.has(key)) continue;
-      nonFenceSeen.add(key);
-      report(depFile, line + 1, `dependency diagnostic TS${diag.code}: ${msg} — error in a file the fences depend on (not in any fence); fence results are not trustworthy until this is fixed`);
-      continue;
+      const mdLine = diagUnit.startLine + Math.max(0, line - diagUnit.preambleLines);
+      report(diagUnit.mdFile, mdLine, `fence type error TS${diag.code}: ${msg}`);
     }
-    const { line } = diag.file.getLineAndCharacterOfPosition(diag.start ?? 0);
-    const mdLine = unit.startLine + Math.max(0, line - unit.preambleLines);
-    report(unit.mdFile, mdLine, `fence type error TS${diag.code}: ${msg}`);
   }
 }
 

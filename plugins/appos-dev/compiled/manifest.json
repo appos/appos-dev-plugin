@@ -2,10 +2,10 @@
   "schema": 1,
   "artifacts": {
     "cli-chat-system-prompt.md": "0ace5e39d569fac84ca22e244bfb5dae8242b14e059395894f16f712b1ecc170",
-    "plugin-factory-context.md": "6be541845354eef1102137a659d1fa95eaa08e9831a3ca3465d7bd21e12fb635"
+    "plugin-factory-context.md": "7f88324ea31c5f0f8d31244e6849cf5f7bd1d880584003e59417f630fae3acbd"
   },
   "sources": {
-    "SKILL.md": "530676e9406c748e329833a1521c6cc4749e8be027544e7de2f530f24acce292",
+    "SKILL.md": "578072277d3999ba86bd1e3f63d87c72515b0a50e692e60a59bbc43de94c7bd6",
     "reference/extension-api.md": "d895601ae86bfb265f0eeb6251a5e904c8323c3ecf7cb3f31602a199aa78d06a",
     "reference/patterns.md": "e828e95cf8595e0d8b5dcf7b3dba5fae0cee3778b361a3b1dc86c1828980a388",
     "reference/plugin-api/index.d.ts": "cbdd7a4aa96001d3fe664427ffc30039ce09ba80dca2eee32960c5c925c4d8d4",
