@@ -85,6 +85,8 @@ If WebView panels are needed, also create `$TARGET/webview/{panelId}/` and `$TAR
 
 If the plugin doesn't use ViewDescriptor panels at all, you can drop `@appos.space/view-builders` from `dependencies`. If it doesn't need runtime helpers, drop `@appos.space/plugin-utils` too. **`@appos.space/plugin-types` stays in `devDependencies` always** — it's type-only.
 
+If the plugin uses a WebView panel, step 10 extends the `typecheck` script to also cover `webview/` sources — leave it as written for now.
+
 <details>
 <summary>SDK contributors only: developing against a local plugin-sdk checkout</summary>
 
@@ -116,7 +118,7 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
 }
 ```
 
-Note `"lib": ["ES2020", "DOM"]` — the `DOM` entry is only needed if the plugin ships `webview/*.js` files it wants to typecheck. For pure plugin-side code, `"ES2020"` alone is fine.
+Note `"lib": ["ES2020", "DOM"]` — the `DOM` entry is what declares `console` and `setTimeout` for plugin-side code; dropping it fails the scaffolded `main.ts` with TS2584 (the JSC runtime provides `console`, but guard timer use at runtime — JSC may not inject timers). This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — step 10 gives them their own `tsconfig.webview.json` and chains it into `npm run typecheck`.
 
 ## 7. Write build.mjs
 
@@ -295,6 +297,35 @@ disposables.push(() => { panelDisposed = true; });
 
 Capture the string tokens (`panelToken`, `messageToken`) per the 3.0.0 types, but do NOT build cleanup on their runtime values — the shipped 1.0.0 host returns `undefined` from both calls at runtime (host↔d.ts reconciliation is a known SDK follow-up), and it removes panels and message handlers automatically on plugin unload. Use the `disposed` flag as above for mid-life teardown; calling `onWebPanelMessage` again for the same panel replaces the previous handler. See the `webview-panels` skill → "Cleanup" section.
 
+### Wire webview sources into the typecheck
+
+The step-6 `tsconfig.json` checks `src/**/*.ts` only — without more wiring, nothing under `webview/` (neither the bridge declaration nor your panel `.js`) ever enters `npm run typecheck`, and a misspelled `window.twopanez` / `bridge` member fails silently at runtime. Write `tsconfig.webview.json` next to `tsconfig.json`:
+
+```json
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "allowJs": true,
+        "checkJs": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "lib": ["ES2020", "DOM", "DOM.Iterable"]
+    },
+    "include": ["webview/**/*"]
+}
+```
+
+Then:
+
+1. Copy the `window.twopanez` ambient declaration from the `webview-panels` skill ("The bridge" section) to `webview/twopanez.d.ts` — it is what types the host-injected global for this config.
+2. Update the `typecheck` script in `package.json` to run both worlds: `"typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json"`.
+
+`checkJs` + `strict` means webview `.js` functions need JSDoc `@param`/`@returns` annotations — the skill's `bridge.js` already carries them; copy it as-is. Use `/** @param {any} x */` where typing isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the rsync, so the extra config never ships with the plugin.
+
 ## 11. Build
 
 ```bash
@@ -320,6 +351,14 @@ Also verify the manifest is well-formed and has `minHostVersion: "1.0.0"`:
 ```bash
 node -e "console.log(JSON.parse(require('fs').readFileSync('{target-directory}/plugin.json','utf8')).minHostVersion)"
 ```
+
+Run the typecheck — it must exit 0:
+
+```bash
+cd "{target-directory}" && npm run typecheck
+```
+
+For WebView plugins this now covers `webview/` via `tsconfig.webview.json` — a misspelled bridge member like `window.twopanez.onMesage(...)` fails here with `TS2551 … Did you mean 'onMessage'?` instead of silently doing nothing at runtime.
 
 ## 13. Report
 

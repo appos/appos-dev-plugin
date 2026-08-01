@@ -211,12 +211,91 @@ const COUNT_PATTERNS = [
 // Derived truth from a d.ts directory (mirror or tarball dist/).
 // ───────────────────────────────────────────────────────────────────────────
 
+/**
+ * Structural scalar-vs-namespace classification for PluginContext members.
+ *
+ * The metadata scalars (`pluginId`, `pluginVersion`, `hostVersion`) were
+ * previously a hardcoded three-name whitelist — the last hand-maintained
+ * assumption in this derivation. Had a future SDK added another readonly
+ * metadata scalar, the whitelist would have counted it as an API namespace,
+ * and because INDEX generation (surface_line in check-sdk-freshness.sh) and
+ * count verification both consume the same deriveCounts() result, the wrong
+ * counts would have stayed green. Classify instead by the STRUCTURAL property
+ * visible in the d.ts itself: a scalar's declared type resolves to a
+ * primitive/literal (`string`, a literal union, or a type alias thereof); a
+ * namespace's type resolves to an interface declared in the same d.ts dir
+ * (LifecycleAPI, ShellAPI, ...). Alias resolution walks the dir's own
+ * `type X = ...` declarations so an aliased scalar still classifies as a
+ * scalar. Anything unclassifiable THROWS (fail closed, matching the missing-
+ * PluginContext throw below) — a silent guess in either direction is exactly
+ * the drift this gate exists to prevent.
+ *
+ * Deliberately declaration-TEXT analysis, not the ts compiler API:
+ * deriveCounts() backs the `--counts` mode consumed by check-sdk-freshness.sh
+ * surface_line(), which must run with node alone (before/without `npm ci`, so
+ * typescript may not be installed — see the "--counts" block below, which
+ * intentionally exits ahead of the typescript import).
+ */
+const PRIMITIVE_TYPE_KEYWORDS = new Set(["string", "number", "boolean", "bigint", "symbol", "undefined", "null"]);
+const isLiteralTypeAtom = (t) => /^["'`]/.test(t) || /^-?\d/.test(t) || t === "true" || t === "false";
+
+/** Line-anchored so prose mentions of "interface"/"type" in doc comments don't register. */
+const INTERFACE_DECL_RE = /^[ \t]*(?:export[ \t]+)?(?:declare[ \t]+)?interface[ \t]+(\w+)/gm;
+const TYPE_ALIAS_DECL_RE = /^[ \t]*(?:export[ \t]+)?(?:declare[ \t]+)?type[ \t]+(\w+)[ \t]*(?:<[^>=]*>)?[ \t]*=\s*([^;]+);/gm;
+
+function collectTypeDecls(dtsDir) {
+  const decls = new Map(); // name -> { kind: "interface" } | { kind: "alias", rhs: string }
+  for (const f of fs.readdirSync(dtsDir).sort()) {
+    if (!f.endsWith(".d.ts")) continue;
+    const src = fs.readFileSync(path.join(dtsDir, f), "utf8");
+    for (const m of src.matchAll(INTERFACE_DECL_RE)) decls.set(m[1], { kind: "interface" });
+    for (const m of src.matchAll(TYPE_ALIAS_DECL_RE)) {
+      if (!decls.has(m[1])) decls.set(m[1], { kind: "alias", rhs: m[2] });
+    }
+  }
+  return decls;
+}
+
+/** @returns {"scalar" | "namespace" | "unknown"} */
+function classifyMemberType(typeText, decls, depth = 0) {
+  if (depth > 16) return "unknown"; // alias cycle / pathological nesting
+  const t = typeText.trim();
+  const parts = t.split("|").map((s) => s.trim()).filter((s) => s !== "");
+  if (parts.length > 1) {
+    const kinds = parts.map((p) => classifyMemberType(p, decls, depth + 1));
+    if (kinds.every((k) => k === "scalar")) return "scalar";
+    if (kinds.every((k) => k === "namespace")) return "namespace";
+    return "unknown";
+  }
+  if (PRIMITIVE_TYPE_KEYWORDS.has(t) || isLiteralTypeAtom(t)) return "scalar";
+  if (/^[A-Za-z_$][\w$]*$/.test(t)) {
+    const decl = decls.get(t);
+    if (!decl) return "unknown"; // not declared anywhere in the d.ts dir
+    return decl.kind === "interface" ? "namespace" : classifyMemberType(decl.rhs, decls, depth + 1);
+  }
+  return "unknown";
+}
+
 function deriveCounts(dtsDir) {
   const core = fs.readFileSync(path.join(dtsDir, "core.d.ts"), "utf8");
   const ctxBody = core.match(/export interface PluginContext \{([\s\S]*?)\n\}/);
   if (!ctxBody) throw new Error(`PluginContext not found in ${dtsDir}/core.d.ts`);
-  const members = [...ctxBody[1].matchAll(/readonly (\w+):/g)].map((m) => m[1]);
-  const scalars = members.filter((n) => ["pluginId", "pluginVersion", "hostVersion"].includes(n));
+  const typeDecls = collectTypeDecls(dtsDir);
+  const members = [...ctxBody[1].matchAll(/readonly (\w+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]);
+  const scalars = [];
+  let namespaceCount = 0;
+  for (const [name, typeText] of members) {
+    const kind = classifyMemberType(typeText, typeDecls);
+    if (kind === "scalar") scalars.push(name);
+    else if (kind === "namespace") namespaceCount += 1;
+    else {
+      throw new Error(
+        `unclassifiable PluginContext member \`${name}: ${typeText}\` in ${dtsDir}/core.d.ts — ` +
+        "neither a primitive/literal (metadata scalar) nor a type declared in the d.ts dir " +
+        "(API namespace); extend classifyMemberType in scripts/verify-knowledge.mjs",
+      );
+    }
+  }
 
   const coreImport = core.match(/import type \{([^}]+)\} from "\.\/namespaces-core-plugins"/);
   const corePluginNamespaces = coreImport
@@ -234,7 +313,7 @@ function deriveCounts(dtsDir) {
   const legacyAliases = legacy ? [...legacy[1].matchAll(/"([^"]+)"/g)].length : 0;
 
   return {
-    namespaces: members.length - scalars.length,
+    namespaces: namespaceCount,
     metadataScalars: scalars.length,
     corePluginNamespaces,
     canonicalScopes: fixedScopes,

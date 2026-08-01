@@ -148,16 +148,22 @@ Other methods:
 |---|---|---|
 | `registerFromCommand(commandId, metadata)` | Projects an existing `ctx.commands` command into the action catalog | `actions.register` |
 | `invoke(id, input, source?)` | Invokes through the full pipeline; resolves to an `ActionReceipt` | `actions.invoke` (+ `actions.invoke.agent` for source `"agent"`) |
-| `all()` | Lists merged executable + manifest-declared actions | `actions.list` |
+| `all()` | Lists the action catalog (runtime-registered only on the shipped host — see below) | `actions.list` |
 | `unregister(handleToken)` | Removes an executable registration | `actions.register` |
 
-`all()` may return **manifest-only** entries (declared via `extensions[]`
-but with no executable handler bound yet); invoking those surfaces
-`ACTION_NOT_FOUND` until `register()` binds the handler.
+By design `all()` also returns **manifest-only** entries (declared via
+`extensions[]` but with no executable handler bound yet; invoking one
+surfaces `ACTION_NOT_FOUND` until `register()` binds the handler). On the
+shipped host this does NOT happen — manifest `actions.definition`
+contributions never reach discovery (host bug fn-163; see the caveat
+under "`extensions[]`" below), so `all()` and `palette.query()` list
+runtime-registered actions only. Never write code that expects to find an
+unbound manifest action in `all()`. <!-- remove when fn-163 lands -->
 
 #### `ctx.palette` — palette integration (fn-89)
 
-`query(text, scope?)` searches the merged action catalog; `pin(id)` /
+`query(text, scope?)` searches the action catalog (the fn-163 caveat
+above applies — runtime-registered actions only); `pin(id)` /
 `unpin(id)` manage palette pins (`palette.contribute.scope`);
 `history(limit?)` returns recent invocations (`palette.history`).
 
@@ -564,7 +570,14 @@ Notable properties:
 - **`grid`** — `columns` (default 3), `spacing` (default 8)
 - **`remoteImage`** — `url` (file:// only in v1), `width`, `height`,
   `cornerRadius`, `maxDimension` (default 512)
-- **`textField`** — `placeholder`, `value`, `action` (fires on submit)
+- **`textField`** — `placeholder`, `text` (initial contents), `action`
+  (fires on submit). Divergence: SDK 3.0.0 (`TextFieldDescriptor` and the
+  `textField()` builder) names the initial-contents property `text`, but
+  the shipped 1.0.0 host reads `value` — typed `text` compiles yet
+  renders empty today, while `value` fails excess-property checking. To
+  seed initial contents on today's host, include BOTH keys via an
+  assertion-cast properties object. <!-- collapse to `text`-only when the
+  host reads `text` -->
 - **`progress`** — `value` (0–1, omit for indeterminate), `label`,
   `style` (`"bar"` | `"circular"`)
 - **`listItem`** — `title`, `subtitle`, `icon`, `iconColor`, `action`,

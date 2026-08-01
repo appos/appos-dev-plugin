@@ -228,9 +228,10 @@ if [[ "$MODE" == "update" ]]; then
   # Stage-then-swap: build the ENTIRE new mirror + INDEX + pin in a staging
   # area first, guarding every write, so an I/O failure (full disk, perms)
   # exits non-zero without having touched the committed artifacts. Only the
-  # final swap mutates the repo — and each swap step is guarded too, so even
-  # a mid-swap failure exits non-zero (and check mode would then fail loudly
-  # on the inconsistent state rather than trusting it).
+  # final swap mutates the repo — and the swap itself is crash-safe: the old
+  # mirror is kept as a rollback target until the new mirror AND pin are both
+  # in place, so every failure branch restores the fully-OLD state (or says
+  # exactly where the surviving copy is and how to put it back).
   STAGE_DIR="$TMP_DIR/stage"
   STAGE_PIN="$TMP_DIR/sdk-integrity.staged"
   mkdir -p "$STAGE_DIR" || { echo "[check-sdk-freshness] ERROR could not create staging dir" >&2; exit 2; }
@@ -276,17 +277,57 @@ if [[ "$MODE" == "update" ]]; then
   done
   [[ -s "$STAGE_DIR/INDEX.md" && -s "$STAGE_PIN" ]] || { echo "[check-sdk-freshness] ERROR staged INDEX.md/pin empty" >&2; exit 2; }
 
-  # Swap into place (guarded; a failure here exits non-zero and the committed
-  # tree is left for check mode to flag rather than being trusted).
-  rm -rf "$MIRROR_DIR" || { echo "[check-sdk-freshness] ERROR could not remove old mirror $MIRROR_DIR" >&2; exit 2; }
+  # Crash-safe swap. Two properties the previous rm-then-mv sequence lacked:
+  #   1. The staged payload is first landed in a SIBLING dir on the mirror's
+  #      own filesystem ($TMPDIR is often a different device, where mv is a
+  #      non-atomic copy+delete that can die halfway), so every live-path
+  #      flip below is an atomic same-filesystem rename(2).
+  #   2. The old mirror is set aside as a rollback target — never deleted —
+  #      until the new mirror AND pin are both installed. Every failure
+  #      branch restores the fully-OLD mirror + pin, so a failed --update
+  #      never strands the repo without a mirror or with a mixed
+  #      mirror/pin pairing; if a restore itself fails, the message says
+  #      exactly where the surviving copy is and how to put it back.
+  NEW_DIR="$MIRROR_DIR.new.$$"
+  NEW_PIN="$PIN_FILE.new.$$"
+  BAK_DIR="$MIRROR_DIR.bak.$$"
+  # $BAK_DIR is deliberately NOT in this trap: on a rollback failure it holds
+  # the only surviving copy of the old mirror.
+  trap 'rm -rf "$TMP_DIR" "$NEW_DIR" "$NEW_PIN"' EXIT
+
   mkdir -p "$(dirname "$MIRROR_DIR")" || exit 2
-  if ! mv "$STAGE_DIR" "$MIRROR_DIR"; then
-    echo "[check-sdk-freshness] ERROR mirror swap failed — repo has NO mirror right now; re-run --update" >&2
+  mkdir -p "$NEW_DIR" || { echo "[check-sdk-freshness] ERROR could not create install dir $NEW_DIR" >&2; exit 2; }
+  for f in "${TARBALL_DTS[@]}"; do
+    cp "$STAGE_DIR/$f" "$NEW_DIR/$f" || { echo "[check-sdk-freshness] ERROR install copy failed for $f (committed mirror untouched)" >&2; exit 2; }
+    cmp -s "$DIST_DIR/$f" "$NEW_DIR/$f" || { echo "[check-sdk-freshness] ERROR installed $f not byte-equal to tarball (I/O corruption?; committed mirror untouched)" >&2; exit 2; }
+  done
+  cp "$STAGE_DIR/INDEX.md" "$NEW_DIR/INDEX.md" || { echo "[check-sdk-freshness] ERROR install copy failed for INDEX.md (committed mirror untouched)" >&2; exit 2; }
+  cp "$STAGE_PIN" "$NEW_PIN" || { echo "[check-sdk-freshness] ERROR install copy failed for pin (committed mirror untouched)" >&2; exit 2; }
+  [[ -s "$NEW_DIR/INDEX.md" && -s "$NEW_PIN" ]] || { echo "[check-sdk-freshness] ERROR installed INDEX.md/pin empty (committed mirror untouched)" >&2; exit 2; }
+
+  if [[ -e "$MIRROR_DIR" ]]; then
+    mv "$MIRROR_DIR" "$BAK_DIR" || { echo "[check-sdk-freshness] ERROR could not set old mirror aside (committed mirror untouched)" >&2; exit 2; }
+  fi
+  if ! mv "$NEW_DIR" "$MIRROR_DIR"; then
+    echo "[check-sdk-freshness] ERROR mirror swap failed — restoring the old mirror" >&2
+    if [[ -e "$BAK_DIR" ]] && ! mv "$BAK_DIR" "$MIRROR_DIR"; then
+      echo "[check-sdk-freshness] ERROR rollback failed too — old mirror preserved at $BAK_DIR; restore by hand: mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+    fi
     exit 2
   fi
-  if ! mv "$STAGE_PIN" "$PIN_FILE"; then
-    echo "[check-sdk-freshness] ERROR pin swap failed — $PIN_FILE is stale vs the new mirror; re-run --update (check mode will fail loudly until then)" >&2
+  if ! mv "$NEW_PIN" "$PIN_FILE"; then
+    echo "[check-sdk-freshness] ERROR pin swap failed — rolling back to the old mirror so $PIN_FILE and the mirror stay coherent" >&2
+    if ! rm -rf "$MIRROR_DIR"; then
+      echo "[check-sdk-freshness] ERROR rollback failed too — the NEW mirror is live but $PIN_FILE is the OLD pin; old mirror preserved at $BAK_DIR; restore by hand: rm -rf '$MIRROR_DIR' && mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+      exit 2
+    fi
+    if [[ -e "$BAK_DIR" ]] && ! mv "$BAK_DIR" "$MIRROR_DIR"; then
+      echo "[check-sdk-freshness] ERROR rollback failed too — repo has NO mirror; old mirror preserved at $BAK_DIR; restore by hand: mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+    fi
     exit 2
+  fi
+  if ! rm -rf "$BAK_DIR"; then
+    echo "[check-sdk-freshness] WARN update SUCCEEDED but the old-mirror backup could not be removed — delete it by hand: rm -rf '$BAK_DIR'" >&2
   fi
 
   echo "[check-sdk-freshness] UPDATED $MIRROR_DIR (${#TARBALL_DTS[@]} d.ts files), $INDEX_FILE, $PIN_FILE for $PKG@$VERSION"

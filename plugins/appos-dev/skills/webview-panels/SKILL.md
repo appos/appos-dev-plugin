@@ -72,6 +72,7 @@ Canonical layout (from `appos-plugin-ytdlp`):
 
 ```
 webview/
+├── twopanez.d.ts     # ambient declaration for window.twopanez (see "The bridge")
 ├── download/
 │   ├── index.html
 │   ├── styles.css
@@ -141,17 +142,60 @@ export {};
 
 Semantics: `send` is fire-and-forget (arrives host-side via `onWebPanelMessage`); `request` is request/response (`onWebPanelRequest`); `onMessage` receives everything the plugin pushes via `postToWebPanel`. `instanceId` is the per-WKWebView UUID, `windowId` the app window ID, and `paneId` says which pane hosts the view.
 
-Wrap it in a thin `shared/bridge.js` module so panel scripts don't depend on the raw global and can be tested in isolation. Pattern from the ytdlp plugin:
+**The declaration only checks anything if webview code is part of a typecheck program.** The plugin `tsconfig.json` includes only `src/**/*.ts`, so neither this `.d.ts` nor your panel `.js` files ever enter `npm run typecheck` through it. Give `webview/` its own config — it is a different compilation world (DOM globals, host-injected bridge, plain-JS ES modules) — and chain both configs from the `typecheck` script. Write `tsconfig.webview.json` next to `tsconfig.json` (the `/appos-dev:new-plugin` scaffold writes exactly this for WebView plugins):
+
+```json
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "allowJs": true,
+        "checkJs": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "lib": ["ES2020", "DOM", "DOM.Iterable"]
+    },
+    "include": ["webview/**/*"]
+}
+```
+
+…and in `package.json`: `"typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json"`.
+
+With this wiring a misspelled bridge member fails typecheck instead of silently breaking at runtime — `window.twopanez.onMesage(...)` fails with `TS2551 … Did you mean 'onMessage'?`, and wrapper typos like `bridge.sedn(...)` are caught too. Two things `checkJs` + `strict` demand from webview `.js`: functions need JSDoc `@param`/`@returns` annotations (the bridge below carries them — copy it as-is), and payloads narrowed from `unknown` need a JSDoc type predicate or `/** @type {...} */` cast, as shown below. Use `{any}` where typing genuinely isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the shipped bundle, so the extra config never reaches the host.
+
+Wrap the global in a thin `shared/bridge.js` module so panel scripts don't depend on the raw global and can be tested in isolation. Pattern from the ytdlp plugin (whose shipped bridge is JSDoc-annotated the same way):
 
 ```js
 // webview/shared/bridge.js
 const PROTOCOL_VERSION = 1;
+
+/** @typedef {{ v: number, type: string, [key: string]: unknown }} ProtocolMessage */
+/** @typedef {{ stream: 'stdout' | 'stderr', data: string, bytesTotal: number }} ShellChunk */
+
+/** @type {Array<(msg: ProtocolMessage) => void>} */
 const _messageListeners = [];
+/** @type {Array<(chunk: ShellChunk) => void>} */
 const _shellListeners = [];
 
+/**
+ * @param {unknown} data
+ * @returns {data is ShellChunk}
+ */
 function isShellChunk(data) {
     return typeof data === 'object' && data !== null
         && 'stream' in data && 'data' in data && !('v' in data);
+}
+
+/**
+ * @param {unknown} data
+ * @returns {data is ProtocolMessage}
+ */
+function isProtocolMessage(data) {
+    const m = /** @type {{ v?: unknown, type?: unknown } | null} */ (data);
+    return typeof m === 'object' && m !== null && m.v === PROTOCOL_VERSION && typeof m.type === 'string';
 }
 
 if (window.twopanez) {
@@ -162,7 +206,7 @@ if (window.twopanez) {
             }
             return;
         }
-        if (typeof data !== 'object' || data === null || data.v !== PROTOCOL_VERSION || typeof data.type !== 'string') {
+        if (!isProtocolMessage(data)) {
             console.warn('[bridge] Dropped malformed inbound');
             return;
         }
@@ -173,11 +217,14 @@ if (window.twopanez) {
 }
 
 export const bridge = {
+    /** @param {object} message */
     send(message) { window.twopanez?.send(message); },
+    /** @param {(msg: ProtocolMessage) => void} handler @returns {() => void} */
     onMessage(handler) {
         _messageListeners.push(handler);
         return () => { const i = _messageListeners.indexOf(handler); if (i !== -1) _messageListeners.splice(i, 1); };
     },
+    /** @param {(chunk: ShellChunk) => void} handler @returns {() => void} */
     onShellChunk(handler) {
         _shellListeners.push(handler);
         return () => { const i = _shellListeners.indexOf(handler); if (i !== -1) _shellListeners.splice(i, 1); };

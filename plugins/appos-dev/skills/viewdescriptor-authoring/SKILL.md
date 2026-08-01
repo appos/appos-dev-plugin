@@ -41,7 +41,7 @@ Build native SwiftUI views for AppOS plugins using JSON ViewDescriptor trees. Ea
 |------|-----------|-------|
 | `button` | `title`, `action`, `tooltip`, `width` | With `width`: inline action button with hover. |
 | `listItem` | `title`, `subtitle`, `icon`, `iconColor`, `action`, `menuActions`, `children` | Primary row type. |
-| `textField` | `placeholder`, `value`, `action` | Editable text input. Action fires on submit. |
+| `textField` | `placeholder`, `text`, `action` | Editable text input. Action fires on submit. SDK 3.0.0 types name the initial contents `text`, but the 1.0.0 host reads `value` — include both (assertion-cast) to seed initial text on today's host. |
 | `progress` | `value` (0.0-1.0), `label`, `style` ("bar"/"circular") | Omit `value` for indeterminate. Default style: "bar". |
 | `section` | `title`, `icon`, `badge`, `isExpanded`, `id`, `children` | Collapsible group. |
 
