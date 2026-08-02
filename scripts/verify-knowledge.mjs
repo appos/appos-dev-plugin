@@ -150,9 +150,10 @@
  *     ambient `declare function activate`, 2.4.0-fn50, com.twopanez/plugins,
  *     "22 namespaces" / "34 permissions", triple-slash types reference, ...).
  *  5. count-string consistency — numeric surface claims in tier (a)
- *     ("N namespaces", "N permission scopes", "N exported types", plus the
- *     hyphenated singular forms "N-scope" / "N-namespace", ...) must match
- *     the truth DERIVED from the mirror at run time.
+ *     ("N namespaces", "N permission scopes", "N exported types",
+ *     "N ViewDescriptor types" / "N view types", plus the hyphenated
+ *     singular forms "N-scope" / "N-namespace", ...) must match the truth
+ *     DERIVED from the mirror at run time.
  *
  * ── Usage / exit contract ──────────────────────────────────────────────────
  *   node scripts/verify-knowledge.mjs             # run the full gate
@@ -253,6 +254,17 @@ const COUNT_PATTERNS = [
   // consumed by check-sdk-freshness.sh surface_line() is unchanged).
   { label: "dynamic scope families", re: /(\d+)[\s-]+dynamic\s+(?:`[^`]+`\s+)?scope\s+famil(?:y|ies)\b/gi, key: "dynamicScopeFamilies" },
   { label: "permission strings (canonical + legacy)", re: /(\d+)[\s-]+permission\s+strings\b/gi, key: "allPermissionStrings" },
+  // ViewDescriptor union cardinality (r13): deriveCounts() counts the
+  // discriminated union's members from the mirror's views.d.ts. Tier-(a)
+  // phrasings today: "17 ViewDescriptor types" (SKILL.md, extension-api.md,
+  // viewdescriptor-builder agent), "17 view types" (plugin-architect agent,
+  // README), and the "All 17 types" heading (viewdescriptor-authoring SKILL).
+  // A bare "N types" pattern is deliberately NOT used — prose like
+  // "SDK 3.0.0 types registerWebPanel as ..." would match its trailing "0".
+  { label: "ViewDescriptor types", re: /(\d+)[\s-]+ViewDescriptor\s+types?\b/gi, key: "viewDescriptorTypes" },
+  { label: "ViewDescriptor types (hyphenated N-type)", re: /(\d+)-type\s+`?ViewDescriptor`?\b/gi, key: "viewDescriptorTypes" },
+  { label: "view types", re: /(\d+)[\s-]+view\s+types\b/gi, key: "viewDescriptorTypes" },
+  { label: "ViewDescriptor types (\"All N types\")", re: /\ball\s+(\d+)\s+types\b/gi, key: "viewDescriptorTypes" },
 ];
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -360,6 +372,26 @@ function deriveCounts(dtsDir) {
   const legacy = perms.match(/export type LegacyPermissionScope = ([^;]+);/);
   const legacyAliases = legacy ? [...legacy[1].matchAll(/"([^"]+)"/g)].length : 0;
 
+  // ViewDescriptor union cardinality (r13): teaching claims carry the union's
+  // member count as a numeral ("17 ViewDescriptor types", "17 view types",
+  // "All 17 types") but nothing derived it — an SDK adding an 18th descriptor
+  // would regenerate the mirror while the prose stayed green-and-stale. Count
+  // the discriminated union's members structurally from views.d.ts (same
+  // declaration-text style as the rest of deriveCounts — the "--counts runs
+  // without typescript" constraint above applies here too). Fail CLOSED on an
+  // unparseable union shape: every member must be a bare identifier; a future
+  // parenthesized/generic/inline-object member throws instead of miscounting.
+  const views = fs.readFileSync(path.join(dtsDir, "views.d.ts"), "utf8");
+  const vdUnion = views.match(/export type ViewDescriptor = ([^;]+);/);
+  if (!vdUnion) throw new Error(`ViewDescriptor union not found in ${dtsDir}/views.d.ts`);
+  const vdMembers = vdUnion[1].split("|").map((s) => s.trim()).filter((s) => s !== "");
+  if (vdMembers.length === 0 || !vdMembers.every((n) => /^[A-Za-z_$][\w$]*$/.test(n))) {
+    throw new Error(
+      `unparseable ViewDescriptor union in ${dtsDir}/views.d.ts — members [${vdMembers.join(", ")}] ` +
+      "are not all bare identifiers; extend the union parsing in deriveCounts (scripts/verify-knowledge.mjs)",
+    );
+  }
+
   return {
     namespaces: namespaceCount,
     metadataScalars: scalars.length,
@@ -367,6 +399,10 @@ function deriveCounts(dtsDir) {
     canonicalScopes: fixedScopes,
     dynamicScopeFamilies: templateFamilies,
     legacyAliases,
+    // NEW key appended r13. Safe for the `--counts` consumer: surface_line()
+    // in check-sdk-freshness.sh extracts SPECIFIC keys via `node -pe`, never
+    // the raw JSON string, so the INDEX.md surface line is byte-unchanged.
+    viewDescriptorTypes: vdMembers.length,
   };
 }
 
@@ -566,10 +602,17 @@ truth.allPermissionStrings = truth.canonicalScopes + truth.legacyAliases;
  * gate. The opener records its container-token SEQUENCE — carried-over
  * tokens first, then any markers on the opener line itself, in order:
  * blockquote tokens (`>` preceded by up to 3 spaces of indent, followed by
- * one optional space) and list tokens carrying the item's CONTENT COLUMN
+ * one optional space — or the first COLUMN of a following tab, whose
+ * remainder is re-emitted as spaces per §2.2's partial-tab rule, so
+ * `>\t```ts` opens a fence at 2 columns of indent; see
+ * consumeBlockquoteMarker) and list tokens carrying the item's CONTENT COLUMN
  * (up to 3 spaces of indent + marker width + at least one following space or
  * tab — the separator measured in COLUMNS per §2.2, a tab advancing to the
- * next multiple-of-4 stop, so `-\t` + fence opens at content column 4).
+ * next multiple-of-4 stop, so `-\t` + fence opens at content column 4). A
+ * separator of >= 5 columns triggers CommonMark §5.2 rule #2 instead: the
+ * content column is marker width + 1 and the surplus separator columns are
+ * content indentation — `-      ```ts` (6-space separator) is an indented
+ * code line inside the item, NOT a fence opener.
  * Contained lines are stripped token by token before buffering: blockquote
  * markers must be present on every line; list content columns are measured in
  * COLUMNS per CommonMark §2.2 — a tab advances to the next multiple-of-4 tab
@@ -605,8 +648,49 @@ truth.allPermissionStrings = truth.canonicalScopes + truth.legacyAliases;
  */
 const FENCE_LINE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 
-/** One CommonMark blockquote marker: up to 3 spaces, `>`, one optional space. */
-const BLOCKQUOTE_MARKER_RE = /^ {0,3}> ?/;
+/**
+ * One CommonMark blockquote marker (§5.1) — DETECTION only: up to 3 spaces of
+ * indent, then `>`. CONSUMPTION (the optional following space — or, per §2.2,
+ * the first COLUMN of a following tab) is owned by consumeBlockquoteMarker,
+ * the single helper every stripping call site routes through; presence
+ * testing (canInterruptParagraph) may use this regex directly because marker
+ * presence is independent of what follows the `>`.
+ */
+const BLOCKQUOTE_MARKER_RE = /^ {0,3}>/;
+
+/**
+ * Consume ONE blockquote marker from `line`, which begins at absolute line
+ * column `startCol`. Per CommonMark §5.1 the marker is up to 3 spaces of
+ * indent + `>` + an OPTIONAL following space — and §2.2's partial-tab rule
+ * extends that space to tabs: a tab immediately after the `>` expands to the
+ * next multiple-of-4 tab stop (anchored to the LINE), the marker consumes
+ * exactly ONE of the tab's columns (the optional space), and the tab's
+ * remaining columns are re-emitted as literal spaces of content indentation.
+ * So `>\t```ts` at line start strips to `  ```ts` — the tab spans columns
+ * 1-3, the marker eats column 1, columns 2-3 come back as two spaces — a
+ * valid fence opener at 2 columns of indent, exactly what renderers show.
+ * (Before r13 the marker regex was `> ?`, which never consumed into a tab, so
+ * the fence line surfaced as `\t```ts`, failed FENCE_LINE_RE, and the example
+ * silently skipped the gate.)
+ *
+ * Returns null when no marker leads, else { rest, cols }: `rest` is the line
+ * with the marker consumed (a straddled tab's remainder re-emitted as
+ * spaces), `cols` the marker's column width — every admitted character
+ * (indent spaces, `>`, the optional space) is width-1 and the consumed tab
+ * column counts 1, so callers advance their absolute-column cursor by
+ * exactly `cols`.
+ */
+function consumeBlockquoteMarker(line, startCol) {
+  const m = line.match(BLOCKQUOTE_MARKER_RE);
+  if (!m) return null;
+  const after = line.slice(m[0].length);
+  if (after[0] === " ") return { rest: after.slice(1), cols: m[0].length + 1 };
+  if (after[0] === "\t") {
+    const tabWidth = 4 - ((startCol + m[0].length) % 4); // tab stop anchored to the LINE
+    return { rest: " ".repeat(tabWidth - 1) + after.slice(1), cols: m[0].length + 1 };
+  }
+  return { rest: after, cols: m[0].length };
+}
 /**
  * One CommonMark list marker: up to 3 spaces of indent, a bullet (`-`, `*`,
  * `+`) or ordered marker (1-9 digits + `.` or `)`), and >= 1 following space
@@ -620,7 +704,12 @@ const BLOCKQUOTE_MARKER_RE = /^ {0,3}> ?/;
  * stays space-only deliberately: a tab anywhere in the first <= 3 characters
  * expands to column >= 4, making the line indented code, never a list item.
  * Contained lines may also reach the content column via tabs; they are
- * measured/stripped column-wise too (see stripContainerPrefix).
+ * measured/stripped column-wise too (see stripContainerPrefix). The regex
+ * consumes ALL separator whitespace; parseContainerPrefix then applies
+ * CommonMark §5.2's separator split — <= 4 columns set the content column
+ * past the separator, >= 5 columns mean the item starts with INDENTED CODE
+ * (rule #2: content column = marker width + 1, surplus columns re-emitted as
+ * content indentation, so the line is never a fence opener).
  */
 const LIST_MARKER_RE = /^( {0,3}(?:[-*+]|\d{1,9}[.)]))([ \t]+)/;
 
@@ -684,11 +773,11 @@ function parseContainerPrefix(line, startCol = 0) {
   let rest = line;
   let absCol = startCol;
   for (;;) {
-    const bq = rest.match(BLOCKQUOTE_MARKER_RE);
+    const bq = consumeBlockquoteMarker(rest, absCol);
     if (bq) {
       tokens.push({ kind: "bq" });
-      rest = rest.slice(bq[0].length);
-      absCol += bq[0].length; // every admitted char (space, `>`) is width-1
+      rest = bq.rest;
+      absCol += bq.cols;
       continue;
     }
     const li = rest.match(LIST_MARKER_RE);
@@ -701,6 +790,25 @@ function parseContainerPrefix(line, startCol = 0) {
       // consumed by the regex, so no tab straddles the content column here.
       const markerEndCol = absCol + li[1].length;
       const sepCols = indentColumns(li[2], markerEndCol);
+      if (sepCols > 4) {
+        // CommonMark §5.2 rule #2 ("item starting with indented code"): a
+        // marker followed by >= 5 columns of whitespace means the item's
+        // content column is marker width + 1 and the content starts with an
+        // INDENTED CODE BLOCK — the marker consumes exactly ONE separator
+        // column; the remaining sepCols-1 (>= 4) columns are content
+        // indentation, re-emitted as spaces. So `-      ```ts` (6-space
+        // separator) surfaces as a 5-space-indented code line inside the
+        // item — FENCE_LINE_RE's ` {0,3}` bound rejects it, matching what
+        // renderers show — while `-    ```ts` (4-space separator, sepCols
+        // <= 4 below) keeps content column 5 and IS a fence opener. Before
+        // r13 the separator was consumed greedily, over-extracting the >= 5
+        // shape as a fence (stricter-than-renderer — safe for a gate, but
+        // the exact rule is a few lines with the shared column math).
+        tokens.push({ kind: "li", col: li[1].length + 1 });
+        rest = " ".repeat(sepCols - 1) + rest.slice(li[0].length);
+        absCol = markerEndCol + 1;
+        continue;
+      }
       tokens.push({ kind: "li", col: li[1].length + sepCols });
       rest = rest.slice(li[0].length);
       absCol = markerEndCol + sepCols;
@@ -733,10 +841,10 @@ function stripContainerPrefix(line, tokens) {
   let absCol = 0; // absolute line column at which `rest` begins
   for (const t of tokens) {
     if (t.kind === "bq") {
-      const m = rest.match(BLOCKQUOTE_MARKER_RE);
+      const m = consumeBlockquoteMarker(rest, absCol);
       if (!m) return { closed: true };
-      rest = rest.slice(m[0].length);
-      absCol += m[0].length; // every admitted char (space, `>`) is width-1
+      rest = m.rest;
+      absCol += m.cols;
     } else {
       if (rest.trim() === "") return { closed: false, content: "" };
       if (indentColumns(rest, absCol) < t.col) return { closed: true };
@@ -800,10 +908,10 @@ function matchOpenContainers(line, stack, paragraphOpen) {
   let kept = 0;
   for (const t of stack) {
     if (t.kind === "bq") {
-      const m = rest.match(BLOCKQUOTE_MARKER_RE);
+      const m = consumeBlockquoteMarker(rest, absCol);
       if (m) {
-        rest = rest.slice(m[0].length);
-        absCol += m[0].length; // every admitted char (space, `>`) is width-1
+        rest = m.rest;
+        absCol += m.cols;
         kept += 1;
         continue;
       }
