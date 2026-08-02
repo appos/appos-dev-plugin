@@ -236,6 +236,23 @@ const COUNT_PATTERNS = [
   // phrase-suffix patterns above reach.
   { label: "permission scopes (hyphenated N-scope)", re: /(\d+)-scope\b/gi, key: "canonicalScopes" },
   { label: "exported types", re: /(\d+)[\s-]+exported\s+type(?:s)?\b/gi, key: "exportedTypes" },
+  // Metadata scalars (r12): deriveCounts() derives metadataScalars, but no
+  // pattern checked the teaching claim in extension-api.md ("3 typed metadata
+  // scalars") — an SDK adding a scalar would regenerate mirror + INDEX while
+  // that prose stayed green-and-stale. `scalars` is OPTIONAL in the first
+  // pattern because the extension-api.md claim wraps mid-phrase ("… 3 typed
+  // metadata\nscalars:") and this scan is line-based — the pattern must match
+  // the line-final "3 typed metadata" form.
+  { label: "typed metadata scalars", re: /(\d+)[\s-]+typed\s+metadata(?:\s+scalars?)?\b/gi, key: "metadataScalars" },
+  { label: "metadata scalars", re: /(\d+)[\s-]+metadata\s+scalars?\b/gi, key: "metadataScalars" },
+  // Remaining derived counts advertised with a numeral anywhere in tier (a)
+  // (r12 sweep): the INDEX surface line's "1 dynamic `oauth.<provider>` scope
+  // family" (generated, but hand-edit-guardable) and validate.md's summed
+  // "140 permission strings" (135 canonical + 5 legacy — the sum is computed
+  // onto `truth` below, NOT in deriveCounts, so the `--counts` JSON contract
+  // consumed by check-sdk-freshness.sh surface_line() is unchanged).
+  { label: "dynamic scope families", re: /(\d+)[\s-]+dynamic\s+(?:`[^`]+`\s+)?scope\s+famil(?:y|ies)\b/gi, key: "dynamicScopeFamilies" },
+  { label: "permission strings (canonical + legacy)", re: /(\d+)[\s-]+permission\s+strings\b/gi, key: "allPermissionStrings" },
 ];
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -456,6 +473,11 @@ if (onlyMirror.length || onlyInstalled.length) {
 }
 
 const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
+// Summed phrasing "N permission strings" (validate.md advertises the total the
+// current schema enum carries: canonical + legacy). Computed here rather than
+// in deriveCounts so the `--counts` JSON shape stays byte-stable for
+// check-sdk-freshness.sh surface_line().
+truth.allPermissionStrings = truth.canonicalScopes + truth.legacyAliases;
 
 // ───────────────────────────────────────────────────────────────────────────
 // Check 2 — SDK declaration health (skipLibCheck: FALSE).
@@ -545,7 +567,9 @@ const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
  * tokens first, then any markers on the opener line itself, in order:
  * blockquote tokens (`>` preceded by up to 3 spaces of indent, followed by
  * one optional space) and list tokens carrying the item's CONTENT COLUMN
- * (up to 3 spaces of indent + marker width + at least one following space).
+ * (up to 3 spaces of indent + marker width + at least one following space or
+ * tab — the separator measured in COLUMNS per §2.2, a tab advancing to the
+ * next multiple-of-4 stop, so `-\t` + fence opens at content column 4).
  * Contained lines are stripped token by token before buffering: blockquote
  * markers must be present on every line; list content columns are measured in
  * COLUMNS per CommonMark §2.2 — a tab advances to the next multiple-of-4 tab
@@ -585,13 +609,20 @@ const FENCE_LINE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 const BLOCKQUOTE_MARKER_RE = /^ {0,3}> ?/;
 /**
  * One CommonMark list marker: up to 3 spaces of indent, a bullet (`-`, `*`,
- * `+`) or ordered marker (1-9 digits + `.` or `)`), and >= 1 following space.
- * The full match length IS the item's content column — in COLUMNS as well as
- * characters, since every char the pattern admits (space, bullet, digit, `.`,
- * `)`) is width-1. Contained lines, by contrast, may reach that column via
- * tabs, so they are measured/stripped column-wise (see stripContainerPrefix).
+ * `+`) or ordered marker (1-9 digits + `.` or `)`), and >= 1 following space
+ * OR TAB. Group 1 (indent + marker) admits only width-1 characters, so its
+ * length is its column width; group 2 (the marker-content separator) may
+ * contain tabs and is measured in COLUMNS per §2.2 by parseContainerPrefix —
+ * a tab after the marker advances to the next multiple-of-4 tab stop, so
+ * `-\t` + fence is a valid opener at content column 4 (r12: previously only
+ * literal spaces were admitted here, and a `-\t`-led fence was never
+ * recognized — its content silently skipped the gate). The leading indent
+ * stays space-only deliberately: a tab anywhere in the first <= 3 characters
+ * expands to column >= 4, making the line indented code, never a list item.
+ * Contained lines may also reach the content column via tabs; they are
+ * measured/stripped column-wise too (see stripContainerPrefix).
  */
-const LIST_MARKER_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)]) +/;
+const LIST_MARKER_RE = /^( {0,3}(?:[-*+]|\d{1,9}[.)]))([ \t]+)/;
 
 /**
  * Measure the leading whitespace of `text` in COLUMNS per CommonMark §2.2:
@@ -643,22 +674,36 @@ function stripColumns(text, cols, startCol) {
  * blockquote / list-item markers in source order. Returns { tokens, rest }
  * where tokens is [{ kind: "bq" } | { kind: "li", col }] and rest is the line
  * with the whole prefix removed (tokens is empty and rest === line when no
- * container marker leads).
+ * container marker leads). `startCol` is the absolute line column at which
+ * `line` begins (non-zero when a carried-over container prefix was already
+ * stripped) — tab stops are anchored to the LINE, so the marker-separator
+ * measurement below needs it.
  */
-function parseContainerPrefix(line) {
+function parseContainerPrefix(line, startCol = 0) {
   const tokens = [];
   let rest = line;
+  let absCol = startCol;
   for (;;) {
     const bq = rest.match(BLOCKQUOTE_MARKER_RE);
     if (bq) {
       tokens.push({ kind: "bq" });
       rest = rest.slice(bq[0].length);
+      absCol += bq[0].length; // every admitted char (space, `>`) is width-1
       continue;
     }
     const li = rest.match(LIST_MARKER_RE);
     if (li) {
-      tokens.push({ kind: "li", col: li[0].length });
+      // Indent + marker (group 1) admit only width-1 chars; the separator
+      // (group 2) may contain tabs, so the item's content column is group 1's
+      // length plus the separator measured in COLUMNS per §2.2 — a tab after
+      // the marker advances to the next multiple-of-4 stop anchored at the
+      // line (`-\t` + fence => content column 4). All separator whitespace is
+      // consumed by the regex, so no tab straddles the content column here.
+      const markerEndCol = absCol + li[1].length;
+      const sepCols = indentColumns(li[2], markerEndCol);
+      tokens.push({ kind: "li", col: li[1].length + sepCols });
       rest = rest.slice(li[0].length);
+      absCol = markerEndCol + sepCols;
       continue;
     }
     return { tokens, rest };
@@ -744,8 +789,10 @@ function canInterruptParagraph(rest) {
  *  - lazy rule (CommonMark lazy continuation): when a paragraph is open and
  *    the failing line cannot interrupt a paragraph, EVERY container stays
  *    open and the line is pure paragraph text — { lazy: true }.
- * Returns { kept, rest, lazy }: `kept` = surviving token count (callers slice
- * the stack), `rest` = the line with the surviving prefix stripped.
+ * Returns { kept, rest, col, lazy }: `kept` = surviving token count (callers
+ * slice the stack), `rest` = the line with the surviving prefix stripped,
+ * `col` = the absolute line column at which `rest` begins (feeds
+ * parseContainerPrefix so its tab-stop math stays line-anchored).
  */
 function matchOpenContainers(line, stack, paragraphOpen) {
   let rest = line;
@@ -775,11 +822,11 @@ function matchOpenContainers(line, stack, paragraphOpen) {
       }
     }
     if (paragraphOpen && rest.trim() !== "" && !canInterruptParagraph(rest)) {
-      return { kept: stack.length, rest, lazy: true };
+      return { kept: stack.length, rest, col: absCol, lazy: true };
     }
-    return { kept, rest, lazy: false };
+    return { kept, rest, col: absCol, lazy: false };
   }
-  return { kept, rest, lazy: false };
+  return { kept, rest, col: absCol, lazy: false };
 }
 
 function extractFences(text) {
@@ -834,7 +881,7 @@ function extractFences(text) {
       paragraphOpen = true;
       continue; // paragraph continuation text — cannot open a fence or a container
     }
-    const { tokens, rest } = parseContainerPrefix(carried.rest);
+    const { tokens, rest } = parseContainerPrefix(carried.rest, carried.col);
     stack.push(...tokens);
     const m = rest.match(FENCE_LINE_RE);
     if (m) {
