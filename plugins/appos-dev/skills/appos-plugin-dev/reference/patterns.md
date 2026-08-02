@@ -389,11 +389,12 @@ without correlation IDs, responses get cross-applied.
 ```ts
 declare const state: { getQueue(): unknown[] };
 
-let throttleTimer: ReturnType<typeof setTimeout> | undefined;
+// NonNullable because JSC may not inject timers — the guard below narrows
+let throttleTimer: ReturnType<NonNullable<typeof setTimeout>> | undefined;
 let lastBroadcast = 0;
 
 function broadcastQueue(): void {
-    if (typeof setTimeout !== 'function') {
+    if (typeof setTimeout !== 'function' || typeof clearTimeout !== 'function') {
         // JSC may not inject timers — fall back to synchronous
         ctx.ui.postToWebPanel('download', {
             v: 1, type: 'queue-update', entries: [...state.getQueue()],

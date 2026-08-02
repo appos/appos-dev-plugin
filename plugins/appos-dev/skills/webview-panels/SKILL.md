@@ -123,7 +123,7 @@ Module paths are relative to the HTML file. ES modules work because WKWebView's 
 
 The host injects `window.twopanez` at document start, before any module runs. The published `@appos.space/plugin-types` package does not type it (WebView code is a separate compilation world), so ship this local ambient declaration alongside your webview sources (authoritative copy: `appos-plugin-dev/reference/extension-api.md` § "WebView-side bridge (`window.twopanez`)"):
 
-```ts
+```ts webview
 // webview/twopanez.d.ts — ship alongside your webview sources.
 // The host injects window.twopanez at runtime; the SDK does not type it.
 interface TwopanezBridge {
@@ -337,11 +337,12 @@ For rapidly-changing state like download progress, throttle broadcasts to the we
 ```ts
 declare const state: { getQueue(): unknown[] };
 
-let throttleTimer: ReturnType<typeof setTimeout> | undefined;
+// NonNullable because JSC may not inject timers — the guard below narrows
+let throttleTimer: ReturnType<NonNullable<typeof setTimeout>> | undefined;
 let lastBroadcast = 0;
 
 function broadcastQueue(): void {
-    if (typeof setTimeout !== 'function') {
+    if (typeof setTimeout !== 'function' || typeof clearTimeout !== 'function') {
         // JSC may not have timers — fall back to sync broadcast on every change
         ctx.ui.postToWebPanel('download', { v: 1, type: 'queue-update', entries: [...state.getQueue()] });
         return;
@@ -475,7 +476,7 @@ Promise.resolve().then(() => handler(parsed)).catch((err) => {
 Per the SDK 3.0.0 types, `onWebPanelMessage` (like `registerWebPanel`) returns a registration-token string. Capture it — but do NOT build teardown on its runtime value: the shipped 1.0.0 host returns `undefined` from both calls at runtime (host↔d.ts reconciliation is a known SDK follow-up), and it removes panels and message handlers automatically on plugin unload. For mid-life teardown, use a `disposed` flag to no-op incoming messages; re-calling `onWebPanelMessage` for the same panel replaces the previous handler:
 
 ```ts
-declare let throttleTimer: ReturnType<typeof setTimeout> | undefined;
+declare let throttleTimer: ReturnType<NonNullable<typeof setTimeout>> | undefined;
 declare function unsubscribeQueue(): void;
 
 let disposed = false;

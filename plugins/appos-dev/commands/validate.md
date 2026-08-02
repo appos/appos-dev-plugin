@@ -95,7 +95,8 @@ Search `src/main.ts` and any files it imports (`src/**/*.ts`) for API usage and 
 | Source pattern | Required permission |
 |---|---|
 | `ctx.ui.registerPanel`, `ctx.ui.registerActivityView`, `ctx.ui.registerFileRowAnnotation` | `ui.sidebar` |
-| `ctx.ui.registerWebPanel`, `ctx.ui.postToWebPanel`, `ctx.ui.onWebPanelMessage`, `ctx.ui.pipeShellToWebPanel` | `ui.webPanel` (the `webview` alias is dead — never granted) |
+| `ctx.ui.registerWebPanel`, `ctx.ui.postToWebPanel`, `ctx.ui.onWebPanelMessage`, `ctx.ui.onWebPanelRequest` | `ui.webPanel` (the `webview` alias is dead — never granted) |
+| `ctx.ui.pipeShellToWebPanel` | BOTH `ui.webPanel` AND `shell.execute` — it streams into a WebView panel *and* spawns a shell process; every piped command must also be listed in `shellCommands` (step 7) |
 | `ctx.ui.registerStatusBarItem` | `ui.statusBar` |
 | `ctx.ui.registerContextMenuItem` | `ui.contextMenu` |
 | `ctx.ui.showNotification` | `ui.notifications` |
@@ -106,7 +107,7 @@ Search `src/main.ts` and any files it imports (`src/**/*.ts`) for API usage and 
 | `ctx.fileOps.listDirectory`, `.readFile`, `.getActiveDirectory` | `filesystem.read` |
 | `ctx.fileOps.createFile`, `.writeFile`, `.delete`, `.moveFile`, `.copyFile` | `filesystem.write` |
 | `ctx.fileOps.watchDirectory` | `filesystem.watch` |
-| `ctx.shell.execute`, `ctx.shell.pipeToWebPanel` (deprecated — use `ctx.ui.pipeShellToWebPanel`) | `shell.execute` |
+| `ctx.shell.execute` | `shell.execute` (`ShellAPI` has ONLY `execute` in SDK 3.0.0 — any `ctx.shell.pipe*` spelling comes from stale docs and does not exist; flag such a call as an ERROR pointing to `ctx.ui.pipeShellToWebPanel`) |
 | `ctx.clipboard.read` | `clipboard.read` |
 | `ctx.clipboard.write` | `clipboard.write` |
 | `ctx.network.fetch` | `network.outbound` (legacy `network.fetch` is normalized to it; bare `network` is dead — never granted) |

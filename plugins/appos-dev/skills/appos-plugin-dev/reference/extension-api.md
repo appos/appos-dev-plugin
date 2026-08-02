@@ -763,7 +763,7 @@ The published SDK does not type `window.twopanez` (WebView code is a
 separate compilation world). For typed WebView TypeScript, ship a local
 ambient declaration:
 
-```ts
+```ts webview
 // webview/twopanez.d.ts — ship alongside your webview sources.
 // The host injects window.twopanez at runtime; the SDK does not type it.
 interface TwopanezBridge {

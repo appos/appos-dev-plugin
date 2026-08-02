@@ -87,6 +87,25 @@
  *    `no-verify`. `window.twopanez` is NOT typed by the published package;
  *    WebView-side fences teach a local ambient declaration (or take
  *    `no-verify`).
+ *  - TWO compile environments. The DEFAULT models the documented
+ *    JavaScriptCore plugin runtime: lib.es2022 plus a verifier-synthesized
+ *    ambient d.ts declaring ONLY the globals the host runtime genuinely
+ *    provides — `console` (JSC's JSContext ships a native console; the host
+ *    injects none) and the timer quartet `setTimeout` / `clearTimeout` /
+ *    `setInterval` / `clearInterval` typed `| undefined` (the host injects NO
+ *    timers; the teaching contract is "guard with `typeof setTimeout ===
+ *    'function'`", and the optional typing makes an UNGUARDED timer call a
+ *    type error while a narrowed call compiles). NO lib.dom: `document`,
+ *    `window`, browser `fetch` (plugins use `ctx.network.fetch`), etc. now
+ *    FAIL in plugin-runtime fences instead of false-greening against browser
+ *    globals that do not exist at runtime. Genuinely WebView-side fences opt
+ *    in with the `webview` flag (```ts webview — same annotation style as
+ *    `no-verify`) and compile with lib.es2022 + lib.dom instead. Doc-path
+ *    defaulting (webview-panels/** → DOM) was measured on this corpus and
+ *    REJECTED: every compiled ts fence in the webview teaching docs is
+ *    plugin-SIDE code (the WebView-side snippets there are js/html fences,
+ *    which never compile), so a path default would have exempted exactly the
+ *    fences that teach the JSC timer guard.
  *  - A preamble is injected ahead of each fence:
  *        import type * as __sdk from "@appos.space/plugin-types";
  *        declare const ctx: __sdk.PluginContext;
@@ -104,7 +123,17 @@
  * ── Checks ─────────────────────────────────────────────────────────────────
  *  1. exported-name-set diff — the mirror's index.d.ts export set must be
  *     IDENTICAL to the installed package's (names added/removed reported).
- *  2. fence type-check — every non-opted-out ts fence in tiers (a)+(b)
+ *  2. SDK declaration health — every d.ts of the mirror AND the installed
+ *     dists of all three pinned packages compiles as ONE program with
+ *     skipLibCheck: FALSE and the plugin-runtime lib set (es2022, no DOM).
+ *     The per-fence programs (check 3) keep skipLibCheck: true for speed,
+ *     which would silently SUPPRESS a semantic error inside a published
+ *     declaration — an unresolved referenced type degrades to error-any and
+ *     dependent fences still compile — so this dedicated program is what
+ *     actually guarantees the SDK surface the fences compile against is
+ *     healthy (and, as a side effect, proves the SDK types need no browser
+ *     globals). Measured cost on this corpus: ~0.2s.
+ *  3. fence type-check — every non-opted-out ts fence in tiers (a)+(b)
  *     compiles clean (tsc 5.9.3, strict, noEmit; ONE Program PER FENCE so
  *     ambient/global declarations cannot leak between examples; diagnostics
  *     mapped back to the markdown file + line). Diagnostics attributed to a
@@ -112,13 +141,15 @@
  *     (installed SDK d.ts, another imported module, lib) or to no file at
  *     all (options/global) are NOT discarded — each distinct one is
  *     reported once as a "dependency diagnostic" / "global diagnostic"
- *     finding (no markdown line mapping), because a broken dependency
- *     would otherwise false-green every fence.
- *  3. stale-identifier denylist — tier (a) text must not contain pre-3.0
+ *     finding (no markdown line mapping). With skipLibCheck: true these
+ *     per-fence programs only surface STRUCTURAL dependency failures
+ *     (module resolution, malformed syntax); SEMANTIC declaration errors
+ *     are check 2's job.
+ *  4. stale-identifier denylist — tier (a) text must not contain pre-3.0
  *     identifiers (PluginCacheAPI, HostEventsAPI, *Namespace spellings,
  *     ambient `declare function activate`, 2.4.0-fn50, com.twopanez/plugins,
  *     "22 namespaces" / "34 permissions", triple-slash types reference, ...).
- *  4. count-string consistency — numeric surface claims in tier (a)
+ *  5. count-string consistency — numeric surface claims in tier (a)
  *     ("N namespaces", "N permission scopes", "N exported types", plus the
  *     hyphenated singular forms "N-scope" / "N-namespace", ...) must match
  *     the truth DERIVED from the mirror at run time.
@@ -427,7 +458,61 @@ if (onlyMirror.length || onlyInstalled.length) {
 const truth = { ...deriveCounts(mirrorAbs), exportedTypes: mirrorNames.size };
 
 // ───────────────────────────────────────────────────────────────────────────
-// Check 2 — fence extraction + type-check.
+// Check 2 — SDK declaration health (skipLibCheck: FALSE).
+//
+// The per-fence programs below run with skipLibCheck: true for speed, which
+// suppresses semantic checking INSIDE every .d.ts. A published declaration
+// with a semantic error (e.g. an unresolved referenced type) would therefore
+// never surface there — the broken member degrades to error-any and fences
+// that use it still compile, false-greening an unhealthy SDK. This dedicated
+// program restores the guarantee: every d.ts of the mirror and the installed
+// dists of all three pinned packages is a ROOT of one skipLibCheck: false
+// compile. Lib set is the plugin-runtime one (es2022, NO DOM) — the published
+// SDK types are consumed from the JSC plugin runtime and must not require
+// browser globals (WebView code is a separate compilation world the package
+// deliberately does not type). Proven empirically: a fixture d.ts with an
+// unresolved type produces 0 diagnostics under the fence options and TS2304
+// under these. Measured cost: ~0.2s on this corpus.
+// ───────────────────────────────────────────────────────────────────────────
+
+{
+  const declDirs = [
+    mirrorAbs,
+    INSTALLED_DIST,
+    path.join(REPO_ROOT, "node_modules", "@appos.space/plugin-utils", "dist"),
+    path.join(REPO_ROOT, "node_modules", "@appos.space/view-builders", "dist"),
+  ];
+  const declRoots = [];
+  for (const dir of declDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir).sort()) {
+      if (f.endsWith(".d.ts")) declRoots.push(path.join(dir, f));
+    }
+  }
+  const declProgram = ts.createProgram(declRoots, {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: false,
+    types: [],
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    lib: ["lib.es2022.d.ts"], // plugin-runtime lib set — SDK types must not need DOM
+  });
+  const declSeen = new Set();
+  for (const diag of ts.getPreEmitDiagnostics(declProgram)) {
+    const msg = ts.flattenDiagnosticMessageText(diag.messageText, " ");
+    const file = diag.file ? path.relative(REPO_ROOT, diag.file.fileName) : "(global)";
+    const line = diag.file ? diag.file.getLineAndCharacterOfPosition(diag.start ?? 0).line + 1 : null;
+    const key = `${file}::${line}::${diag.code}::${msg}`;
+    if (declSeen.has(key)) continue;
+    declSeen.add(key);
+    report(file, line, `sdk declaration diagnostic TS${diag.code}: ${msg} — the published SDK surface the fences compile against is unhealthy; fence results are not trustworthy until this is fixed`);
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Check 3 — fence extraction + type-check.
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
@@ -773,39 +858,85 @@ const PREAMBLE_IMPORT = `import type * as __sdk from "${PKG_NAME}";`;
 const PREAMBLE_CTX = "declare const ctx: __sdk.PluginContext;";
 const bindsCtx = (code) => /\b(?:const|let|var|function|class)\s+ctx\b/.test(code) || /^\s*import\b.*\bctx\b/m.test(code);
 
-const fenceUnits = []; // { virtualPath, mdFile, startLine, preambleLines }
+const fenceUnits = []; // { virtualPath, mdFile, startLine, preambleLines, env }
 const fenceTmpDir = path.join(REPO_ROOT, "node_modules", ".cache", "verify-knowledge");
 fs.rmSync(fenceTmpDir, { recursive: true, force: true });
 fs.mkdirSync(fenceTmpDir, { recursive: true });
 
+/**
+ * Ambient globals for the DEFAULT (JavaScriptCore plugin-runtime) fence
+ * environment — synthesized by this script, NOT a teaching artifact.
+ * Restricted to what the AppOS host runtime GENUINELY provides:
+ *  - `console`: JavaScriptCore's JSContext ships a native console; teaching
+ *    fences use console.log/error throughout and it exists at runtime.
+ *  - timers: the host injects NONE (PluginRuntimeHost evaluates only the
+ *    bridge shim + sanitization scripts) and bare JSC has no setTimeout —
+ *    the documented contract is "guard with `typeof setTimeout ===
+ *    'function'`". Typed `| undefined` so an UNGUARDED call is a type error
+ *    (TS2722) while a typeof-narrowed call compiles.
+ * Deliberately ABSENT: DOM (`document`, `window`), browser `fetch` (plugins
+ * use `ctx.network.fetch`), XMLHttpRequest, storage — none exist in the
+ * plugin runtime. WebView-side fences take the `webview` flag instead.
+ */
+const JSC_GLOBALS_DTS = path.join(fenceTmpDir, "__jsc-runtime-globals.d.ts");
+fs.writeFileSync(JSC_GLOBALS_DTS, `// Synthesized by verify-knowledge.mjs — JSC plugin-runtime ambient globals.
+declare const console: {
+    log(...args: unknown[]): void;
+    info(...args: unknown[]): void;
+    warn(...args: unknown[]): void;
+    error(...args: unknown[]): void;
+    debug(...args: unknown[]): void;
+    trace(...args: unknown[]): void;
+};
+declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare const clearTimeout: ((id: number | undefined) => void) | undefined;
+declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare const clearInterval: ((id: number | undefined) => void) | undefined;
+`);
+
 let fenceCount = 0;
 let optedOut = 0;
+let webviewEnvCount = 0;
 for (const mdFile of fenceFiles) {
   const text = fs.readFileSync(path.join(REPO_ROOT, mdFile), "utf8");
   for (const fence of extractFences(text)) {
     if (fence.lang !== "ts" && fence.lang !== "typescript") continue;
     if (fence.flags.includes("no-verify")) { optedOut++; continue; }
     fenceCount++;
+    const env = fence.flags.includes("webview") ? "webview" : "plugin";
+    if (env === "webview") webviewEnvCount++;
     const preamble = [PREAMBLE_IMPORT, ...(bindsCtx(fence.code) ? [] : [PREAMBLE_CTX])];
     const virtualPath = path.join(
       fenceTmpDir,
       `${mdFile.replace(/[\\/]/g, "__").replace(/\.md$/, "")}__L${fence.startLine}.ts`,
     );
     fs.writeFileSync(virtualPath, preamble.join("\n") + "\n" + fence.code + "\n");
-    fenceUnits.push({ virtualPath, mdFile, startLine: fence.startLine, preambleLines: preamble.length });
+    fenceUnits.push({ virtualPath, mdFile, startLine: fence.startLine, preambleLines: preamble.length, env });
   }
 }
 
 if (fenceUnits.length) {
-  const compilerOptions = {
+  const baseOptions = {
     strict: true,
     noEmit: true,
+    // skipLibCheck stays TRUE here for speed — semantic declaration health is
+    // check 2's dedicated skipLibCheck:false program, so nothing is lost.
     skipLibCheck: true,
     types: [], // no @types/* — keeps diagnostics deterministic across machines
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
-    lib: ["lib.es2022.d.ts", "lib.dom.d.ts"], // DOM for WebView-panel snippets
+  };
+  // TWO ENVIRONMENTS (see header): the default `plugin` env compiles against
+  // the documented JSC runtime (es2022 + the synthesized runtime-globals d.ts
+  // above — no DOM), so `document` / `window` / global `fetch` / an unguarded
+  // timer in a plugin-runtime fence FAIL instead of type-checking against
+  // browser globals that do not exist at runtime. Fences flagged `webview`
+  // compile with lib.dom instead (and without the JSC globals file — DOM
+  // provides console + timers there).
+  const envConfigs = {
+    plugin: { options: { ...baseOptions, lib: ["lib.es2022.d.ts"] }, extraRoots: [JSC_GLOBALS_DTS] },
+    webview: { options: { ...baseOptions, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"] }, extraRoots: [] },
   };
   // ONE PROGRAM PER FENCE — the isolation guarantee is structural. With all
   // fences as roots of a single Program, a `declare global` augmentation or
@@ -816,20 +947,25 @@ if (fenceUnits.length) {
   // false green. Per-fence programs make cross-fence leakage impossible: no
   // other fence file is in the program at all.
   //
-  // Cost control: a shared CompilerHost memoizes getSourceFile so the lib +
-  // installed SDK d.ts files are read/parsed/bound ONCE and reused across all
-  // programs (SourceFile reuse across programs with identical options is the
-  // standard LanguageService/documentRegistry pattern). Measured on this
-  // corpus (63 fences): ~0.6s wall single-program → ~0.9s wall per-fence —
-  // the isolation is essentially free.
-  const host = ts.createCompilerHost(compilerOptions);
+  // Cost control: per-env CompilerHosts memoize getSourceFile through ONE
+  // shared cache keyed by resolved path, so the lib + installed SDK d.ts
+  // files are read/parsed/bound once and reused across all programs
+  // (SourceFile reuse across programs is safe here — every parse-affecting
+  // option, notably target, is identical across both envs; lib SETS differ
+  // but the cache is per-file). Measured on this corpus (63 fences): ~0.6s
+  // wall single-program → ~1.0s wall per-fence + both envs + check 2 — the
+  // isolation is essentially free.
   const sourceFileCache = new Map();
-  const hostGetSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (fileName, ...rest) => {
-    const key = path.resolve(fileName);
-    if (!sourceFileCache.has(key)) sourceFileCache.set(key, hostGetSourceFile(fileName, ...rest));
-    return sourceFileCache.get(key);
-  };
+  for (const cfg of Object.values(envConfigs)) {
+    const host = ts.createCompilerHost(cfg.options);
+    const hostGetSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (fileName, ...rest) => {
+      const key = path.resolve(fileName);
+      if (!sourceFileCache.has(key)) sourceFileCache.set(key, hostGetSourceFile(fileName, ...rest));
+      return sourceFileCache.get(key);
+    };
+    cfg.host = host;
+  }
   const byPath = new Map(fenceUnits.map((u) => [path.resolve(u.virtualPath), u]));
   // Diagnostics NOT attributed to a fence virtual file (installed SDK d.ts,
   // another imported module, lib, or file-less options/global diagnostics)
@@ -840,7 +976,8 @@ if (fenceUnits.length) {
   // surfaces once, not once per fence.
   const nonFenceSeen = new Set();
   for (const unit of fenceUnits) {
-    const program = ts.createProgram([unit.virtualPath], compilerOptions, host);
+    const cfg = envConfigs[unit.env];
+    const program = ts.createProgram([unit.virtualPath, ...cfg.extraRoots], cfg.options, cfg.host);
     for (const diag of ts.getPreEmitDiagnostics(program)) {
       const msg = ts.flattenDiagnosticMessageText(diag.messageText, " ");
       if (!diag.file) {
@@ -868,7 +1005,7 @@ if (fenceUnits.length) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Checks 3 + 4 — denylist + count strings (tier (a) only).
+// Checks 4 + 5 — denylist + count strings (tier (a) only).
 // ───────────────────────────────────────────────────────────────────────────
 
 for (const file of teachingFiles) {
@@ -900,7 +1037,8 @@ for (const file of teachingFiles) {
 console.log(`[verify-knowledge] derived truth: ${JSON.stringify(truth)}`);
 console.log(
   `[verify-knowledge] scanned ${teachingFiles.length} teaching files, ` +
-  `${fenceCount} ts fences compiled (${optedOut} opted out via no-verify), ` +
+  `${fenceCount} ts fences compiled (${fenceCount - webviewEnvCount} plugin-runtime env, ` +
+  `${webviewEnvCount} webview env, ${optedOut} opted out via no-verify), ` +
   `migration guide ${migrationExists ? "fence-checked" : "not present yet (fn-165.2)"}, compiled/** excluded`,
 );
 
