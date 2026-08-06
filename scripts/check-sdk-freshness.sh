@@ -50,6 +50,7 @@
 #   0  fresh (or --update succeeded)
 #   1  drift detected (check mode)
 #   2  usage / environment error (no npm, no network, missing pin file, ...)
+#   130 / 143  interrupted by SIGINT / SIGTERM (after transactional cleanup)
 #
 # Requires: npm (network access to the registry), openssl, node.
 
@@ -180,6 +181,14 @@ fi
 # accepts an explicit path template too. An explicit path works on both.
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sdk-freshness.XXXXXXXX")" || exit 2
 trap 'rm -rf "$TMP_DIR"' EXIT
+# Route fatal signals through exit so the EXIT cleanup (here the temp dir;
+# in --update the transaction-aware cleanup that later replaces this trap)
+# runs DETERMINISTICALLY. Verified on bash 3.2.57: untrapped SIGTERM happens
+# to run the EXIT trap, but untrapped SIGINT sent to the script pid is
+# deferred while a foreground child runs and can be dropped entirely —
+# explicit traps make both behave identically.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 ( cd "$TMP_DIR" && npm pack "$PKG@$VERSION" --silent >/dev/null 2>&1 )
 TARBALL="$(find "$TMP_DIR" -maxdepth 1 -name '*.tgz' | head -1)"
@@ -288,12 +297,46 @@ if [[ "$MODE" == "update" ]]; then
   #      never strands the repo without a mirror or with a mixed
   #      mirror/pin pairing; if a restore itself fails, the message says
   #      exactly where the surviving copy is and how to put it back.
+  # And one r12 addition: SIGINT/SIGTERM interruption is transactional too —
+  # the EXIT trap below is state-aware (restores the set-aside mirror when
+  # the swap did not commit) and the rename window itself masks INT/TERM.
   NEW_DIR="$MIRROR_DIR.new.$$"
   NEW_PIN="$PIN_FILE.new.$$"
   BAK_DIR="$MIRROR_DIR.bak.$$"
-  # $BAK_DIR is deliberately NOT in this trap: on a rollback failure it holds
-  # the only surviving copy of the old mirror.
-  trap 'rm -rf "$TMP_DIR" "$NEW_DIR" "$NEW_PIN"' EXIT
+
+  # Transaction-aware cleanup — replaces the stage-only EXIT trap for the
+  # rest of --update. SWAP_STATE tracks the swap so that ANY exit — command
+  # failure or signal-driven (the INT/TERM traps above route through exit) —
+  # leaves a coherent mirror/pin pairing instead of an orphaned backup:
+  #   - not committed + $BAK_DIR exists: whatever occupies the live path is
+  #     the NEW mirror (or nothing) — clear it and restore $BAK_DIR. The
+  #     committed pin is never displaced before the commit point (the pin
+  #     rename IS the commit), so this restores the fully-OLD pairing.
+  #   - committed: remove the now-redundant backup.
+  #   - then clean the staged paths. $BAK_DIR is still NEVER deleted while it
+  #     is the last surviving copy of the old mirror: the restore
+  #     short-circuits before `mv` if clearing the live path fails, and the
+  #     failure message says where the copy is + the one-line recovery.
+  # Idempotent + re-entrant-safe: further INT/TERM are ignored on entry and
+  # every step re-checks the filesystem, so running after an inline failure
+  # branch below has already rolled back is harmless.
+  SWAP_STATE="none" # none -> set_aside -> committed
+  # shellcheck disable=SC2329 # invoked indirectly, via the EXIT trap below
+  cleanup_update() {
+    trap '' INT TERM
+    if [[ "$SWAP_STATE" == "committed" ]]; then
+      if [[ -e "$BAK_DIR" ]] && ! rm -rf "$BAK_DIR"; then
+        echo "[check-sdk-freshness] WARN update SUCCEEDED but the old-mirror backup could not be removed — delete it by hand: rm -rf '$BAK_DIR'" >&2
+      fi
+    elif [[ -e "$BAK_DIR" ]]; then
+      echo "[check-sdk-freshness] rolling back interrupted mirror swap — restoring the old mirror + pin" >&2
+      if ! rm -rf "$MIRROR_DIR" || ! mv "$BAK_DIR" "$MIRROR_DIR"; then
+        echo "[check-sdk-freshness] ERROR rollback failed — old mirror preserved at $BAK_DIR; restore by hand: rm -rf '$MIRROR_DIR' && mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+      fi
+    fi
+    rm -rf "$TMP_DIR" "$NEW_DIR" "$NEW_PIN"
+  }
+  trap 'cleanup_update' EXIT
 
   mkdir -p "$(dirname "$MIRROR_DIR")" || exit 2
   mkdir -p "$NEW_DIR" || { echo "[check-sdk-freshness] ERROR could not create install dir $NEW_DIR" >&2; exit 2; }
@@ -305,7 +348,17 @@ if [[ "$MODE" == "update" ]]; then
   cp "$STAGE_PIN" "$NEW_PIN" || { echo "[check-sdk-freshness] ERROR install copy failed for pin (committed mirror untouched)" >&2; exit 2; }
   [[ -s "$NEW_DIR/INDEX.md" && -s "$NEW_PIN" ]] || { echo "[check-sdk-freshness] ERROR installed INDEX.md/pin empty (committed mirror untouched)" >&2; exit 2; }
 
+  # Critical section: between the set-aside rename and the pin commit, no
+  # shell variable can be flipped atomically WITH a rename(2) — no SWAP_STATE
+  # value could describe the instant in between. Instead of racing, ignore
+  # INT/TERM across this handful of same-filesystem renames (verified on
+  # bash 3.2: an ignored signal is discarded outright, so the window cannot
+  # be torn; SIGKILL/power loss remains covered by the manual-recovery
+  # messages). COMMAND failures still take the rollback branches below, and
+  # cleanup_update re-verifies their outcome on exit.
+  trap '' INT TERM
   if [[ -e "$MIRROR_DIR" ]]; then
+    SWAP_STATE="set_aside"
     mv "$MIRROR_DIR" "$BAK_DIR" || { echo "[check-sdk-freshness] ERROR could not set old mirror aside (committed mirror untouched)" >&2; exit 2; }
   fi
   if ! mv "$NEW_DIR" "$MIRROR_DIR"; then
@@ -326,9 +379,9 @@ if [[ "$MODE" == "update" ]]; then
     fi
     exit 2
   fi
-  if ! rm -rf "$BAK_DIR"; then
-    echo "[check-sdk-freshness] WARN update SUCCEEDED but the old-mirror backup could not be removed — delete it by hand: rm -rf '$BAK_DIR'" >&2
-  fi
+  # Commit point reached: mirror and pin are both NEW. The transaction-aware
+  # EXIT trap now removes the backup (or WARNs with the one-line recovery).
+  SWAP_STATE="committed"
 
   echo "[check-sdk-freshness] UPDATED $MIRROR_DIR (${#TARBALL_DTS[@]} d.ts files), $INDEX_FILE, $PIN_FILE for $PKG@$VERSION"
   exit 0

@@ -852,7 +852,7 @@ survives across platforms.
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
-        "lib": ["ES2020", "DOM"]
+        "lib": ["ES2022"]
     },
     "include": ["src/**/*.ts"],
     "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
@@ -863,6 +863,36 @@ survives across platforms.
 from `@appos.space/plugin-types`. Without it, TypeScript emits runtime
 `require` / `import` calls that look up a non-existent module in the
 bundler. The plugin silently fails to activate.
+
+**`lib` has no `DOM`** — plugin code runs in JavaScriptCore, which has no
+`document`/`window`, no browser `fetch` (use `ctx.network.fetch`), and no
+guaranteed timers. Ship a `src/jsc-globals.d.ts` declaring what the runtime
+genuinely provides (picked up automatically by `"include": ["src/**/*.ts"]`):
+
+```ts
+// src/jsc-globals.d.ts — JSC plugin-runtime ambient globals. JSC ships a
+// native console; the host injects NO timers — `| undefined` typing makes an
+// unguarded setTimeout(...) a TS2722 error, while a
+// `typeof setTimeout === 'function'`-narrowed call compiles.
+declare const console: {
+    log(...args: unknown[]): void;
+    info(...args: unknown[]): void;
+    warn(...args: unknown[]): void;
+    error(...args: unknown[]): void;
+    debug(...args: unknown[]): void;
+    trace(...args: unknown[]): void;
+};
+declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare const clearTimeout: ((id: number | undefined) => void) | undefined;
+declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare const clearInterval: ((id: number | undefined) => void) | undefined;
+```
+
+Browser globals in `src/` now fail typecheck (`document` → TS2584,
+`window`/`fetch` → TS2304) instead of passing and throwing at runtime. DOM
+belongs only in a WebView-side `tsconfig.webview.json` (see the
+`webview-panels` skill), which sets `skipLibCheck: false` because its only
+declaration file is the project-owned `webview/twopanez.d.ts`.
 
 ## 19. Deploy (rsync with --delete-excluded)
 

@@ -94,7 +94,7 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
 
 </details>
 
-## 6. Write tsconfig.json
+## 6. Write tsconfig.json + src/jsc-globals.d.ts
 
 **MANDATORY**: `verbatimModuleSyntax: true` is required because `@appos.space/plugin-types` is declaration-only. Without this flag, TypeScript emits runtime `import` statements that try to resolve a non-existent module at runtime.
 
@@ -111,14 +111,37 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
-        "lib": ["ES2020", "DOM"]
+        "lib": ["ES2022"]
     },
     "include": ["src/**/*.ts"],
     "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }
 ```
 
-Note `"lib": ["ES2020", "DOM"]` — the `DOM` entry is what declares `console` and `setTimeout` for plugin-side code; dropping it fails the scaffolded `main.ts` with TS2584 (the JSC runtime provides `console`, but guard timer use at runtime — JSC may not inject timers). This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — step 10 gives them their own `tsconfig.webview.json` and chains it into `npm run typecheck`.
+Note `"lib": ["ES2022"]` — deliberately **no `DOM`**. Plugin-side code runs in JavaScriptCore: there is no `document`, no `window`, no browser `fetch` (use `ctx.network.fetch`), and no guaranteed timers. Putting `DOM` in this lib would make all of those typecheck clean and then throw at runtime. The globals the runtime genuinely provides come from a scaffolded ambient file instead — write `src/jsc-globals.d.ts` (it is matched by `"include": ["src/**/*.ts"]`, so it is part of this program automatically):
+
+```ts
+// src/jsc-globals.d.ts — ambient globals of the AppOS JavaScriptCore plugin
+// runtime. JSC ships a native console; the host injects NO timers, so the
+// timer globals are typed `| undefined` — an unguarded setTimeout(...) is a
+// type error (TS2722) while a `typeof setTimeout === 'function'`-narrowed
+// call compiles. Do not add DOM globals here: document/window/browser fetch
+// do not exist in the plugin runtime (use ctx.network.fetch).
+declare const console: {
+    log(...args: unknown[]): void;
+    info(...args: unknown[]): void;
+    warn(...args: unknown[]): void;
+    error(...args: unknown[]): void;
+    debug(...args: unknown[]): void;
+    trace(...args: unknown[]): void;
+};
+declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare const clearTimeout: ((id: number | undefined) => void) | undefined;
+declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare const clearInterval: ((id: number | undefined) => void) | undefined;
+```
+
+With this pair, accidental browser-global use in `src/` fails `npm run typecheck` (`document` → TS2584, `window`/`fetch` → TS2304), an unguarded `setTimeout(...)` fails TS2722, and a `typeof setTimeout === 'function'`-guarded call compiles — matching what actually happens at runtime. `skipLibCheck: true` stays on here because this program pulls in the external SDK `.d.ts` from `node_modules`; the WebView config in step 10 sets it to `false` because its only declaration file is project-owned. This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — DOM belongs exclusively to their `tsconfig.webview.json`, which step 10 writes and chains into `npm run typecheck`.
 
 ## 7. Write build.mjs
 
@@ -311,7 +334,7 @@ The step-6 `tsconfig.json` checks `src/**/*.ts` only — without more wiring, no
         "noEmit": true,
         "allowJs": true,
         "checkJs": true,
-        "skipLibCheck": true,
+        "skipLibCheck": false,
         "forceConsistentCasingInFileNames": true,
         "lib": ["ES2020", "DOM", "DOM.Iterable"]
     },
@@ -323,6 +346,8 @@ Then:
 
 1. Copy the `window.twopanez` ambient declaration from the `webview-panels` skill ("The bridge" section) to `webview/twopanez.d.ts` — it is what types the host-injected global for this config.
 2. Update the `typecheck` script in `package.json` to run both worlds: `"typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json"`.
+
+`skipLibCheck` is `false` here on purpose (unlike the step-6 config): the only declaration file this small program sees is the project-owned `webview/twopanez.d.ts`. With `skipLibCheck: true`, a broken or misspelled type inside that file is silently suppressed — `window.twopanez` degrades to an error-`any` and member typos like `window.twopanez.onMesage(...)` pass, which is exactly what this config exists to catch. With `false`, the corruption itself fails typecheck (`TS2552: Cannot find name 'TwopanezBrige'`).
 
 `checkJs` + `strict` means webview `.js` functions need JSDoc `@param`/`@returns` annotations — the skill's `bridge.js` already carries them; copy it as-is. Use `/** @param {any} x */` where typing isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the rsync, so the extra config never ships with the plugin.
 
@@ -358,7 +383,7 @@ Run the typecheck — it must exit 0:
 cd "{target-directory}" && npm run typecheck
 ```
 
-For WebView plugins this now covers `webview/` via `tsconfig.webview.json` — a misspelled bridge member like `window.twopanez.onMesage(...)` fails here with `TS2551 … Did you mean 'onMessage'?` instead of silently doing nothing at runtime.
+The typecheck models the real runtimes on both sides. Plugin side (`src/`): browser globals fail (`document` → TS2584, `window`/`fetch` → TS2304) and an unguarded `setTimeout(...)` fails TS2722 — if any of those fire, the code would have thrown in JavaScriptCore at runtime; fix the code (guard timers, use `ctx.network.fetch`) rather than adding `DOM` to the step-6 lib. For WebView plugins it also covers `webview/` via `tsconfig.webview.json` — a misspelled bridge member like `window.twopanez.onMesage(...)` fails there with `TS2551 … Did you mean 'onMessage'?` instead of silently doing nothing at runtime.
 
 ## 13. Report
 
