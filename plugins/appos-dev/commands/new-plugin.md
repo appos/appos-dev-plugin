@@ -118,7 +118,7 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
 }
 ```
 
-Note `"lib": ["ES2022"]` — deliberately **no `DOM`**. Plugin-side code runs in JavaScriptCore: there is no `document`, no `window`, no browser `fetch` (use `ctx.network.fetch`), and no guaranteed timers. Putting `DOM` in this lib would make all of those typecheck clean and then throw at runtime. The globals the runtime genuinely provides come from a scaffolded ambient file instead — write `src/jsc-globals.d.ts` (it is matched by `"include": ["src/**/*.ts"]`, so it is part of this program automatically):
+Note `"lib": ["ES2022"]` — deliberately **no `DOM`**. Plugin-side code runs in JavaScriptCore: there is no `document`, no `window`, no browser `fetch` (use `ctx.network.fetch`), no guaranteed timers, and `URL` only on hosts that inject it (AppOS 1.1.0+ — and users can switch it off). Putting `DOM` in this lib would make all of those typecheck clean and then throw at runtime. The globals the runtime genuinely provides come from a scaffolded ambient file instead — write `src/jsc-globals.d.ts` (it is matched by `"include": ["src/**/*.ts"]`, so it is part of this program automatically):
 
 ```ts
 // src/jsc-globals.d.ts — ambient globals of the AppOS JavaScriptCore plugin
@@ -139,9 +139,40 @@ declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: num
 declare const clearTimeout: ((id: number | undefined) => void) | undefined;
 declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
 declare const clearInterval: ((id: number | undefined) => void) | undefined;
+// URL — AppOS hosts 1.1.0+ inject a native Foundation-bridged URL global
+// (immutable v1 subset; NO searchParams — that getter THROWS at runtime,
+// parse url.search manually). Older hosts, the appos.jsc.urlGlobal.disabled
+// kill switch, and menu-bar contexts lack it, so it is typed `| undefined`:
+// an unguarded `new URL(...)` is a type error (TS18048) while a
+// `typeof URL === 'function'`-narrowed call compiles. Same surface as the
+// SDK 3.0.1+ opt-in `@appos.space/plugin-types/globals` subpath (`var`
+// matches its declaration) — if you pin SDK >=3.0.1 you may reference that
+// subpath from tsconfig `types` instead and DELETE this block (keeping both
+// would double-declare URL).
+interface URL {
+    readonly href: string;
+    readonly protocol: string;
+    readonly hostname: string;
+    readonly host: string;
+    readonly port: string;
+    readonly pathname: string;
+    readonly search: string;
+    readonly hash: string;
+    readonly origin: string;
+    readonly username: string;
+    readonly password: string;
+    toString(): string;
+    toJSON(): string;
+}
+interface URLConstructor {
+    new (url: string | URL, base?: string | URL): URL;
+    canParse(url: string | URL, base?: string | URL): boolean;
+    readonly prototype: URL;
+}
+declare var URL: URLConstructor | undefined;
 ```
 
-With this pair, accidental browser-global use in `src/` fails `npm run typecheck` (`document` → TS2584, `window`/`fetch` → TS2304), an unguarded `setTimeout(...)` fails TS2722, and a `typeof setTimeout === 'function'`-guarded call compiles — matching what actually happens at runtime. `skipLibCheck: true` stays on here because this program pulls in the external SDK `.d.ts` from `node_modules`; the WebView config in step 10 sets it to `false` because its only declaration file is project-owned. This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — DOM belongs exclusively to their `tsconfig.webview.json`, which step 10 writes and chains into `npm run typecheck`.
+With this pair, accidental browser-global use in `src/` fails `npm run typecheck` (`document` → TS2584, `window`/`fetch` → TS2304), an unguarded `setTimeout(...)` fails TS2722, an unguarded `new URL(...)` fails TS18048, and `typeof setTimeout === 'function'` / `typeof URL === 'function'`-guarded calls compile — matching what actually happens at runtime. `skipLibCheck: true` stays on here because this program pulls in the external SDK `.d.ts` from `node_modules`; the WebView config in step 10 sets it to `false` because its only declaration file is project-owned. This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — DOM belongs exclusively to their `tsconfig.webview.json`, which step 10 writes and chains into `npm run typecheck`.
 
 ## 7. Write build.mjs
 

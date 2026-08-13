@@ -81,7 +81,12 @@ TypeScript source
   annotations, toolbars, popovers) or **WebView panel** (HTML/CSS/JS in
   the bundle via `plugin-panel://`; rich UI, streaming, media, forms).
 - **JSC has no DOM, no Node, no browser APIs.** Timers may or may not
-  exist — guard with `typeof setTimeout === 'function'`.
+  exist — guard with `typeof setTimeout === 'function'`. Same for `URL`:
+  hosts 1.1.0+ inject a Foundation-bridged `URL` global (immutable v1
+  subset, no `searchParams`), but older hosts, the
+  `appos.jsc.urlGlobal.disabled` kill switch, and menu-bar contexts lack
+  it — guard with `typeof URL === 'function'`
+  (`reference/patterns.md` §24).
 
 ## The SDK packages (`@appos.space/*`)
 
@@ -118,9 +123,14 @@ import { urlToPath, formatSize } from '@appos.space/plugin-utils';
 import { vstack, section, listItem, button } from '@appos.space/view-builders';
 ```
 
-The SDK ships no ambient globals — `import type` every `plugin-types` name
-you use (TS2304 on an SDK name means you forgot). The other two packages
-have real runtime exports.
+The SDK's main entry ships no ambient globals — `import type` every
+`plugin-types` name you use (TS2304 on an SDK name means you forgot). The
+other two packages have real runtime exports. One opt-in exception: SDK
+3.0.1+ adds a `@appos.space/plugin-types/globals` subpath typing the
+host-injected `URL` global — it augments nothing unless a tsconfig
+references it, and the scaffolded `src/jsc-globals.d.ts` declares the same
+surface locally instead (works on any 3.x pin; keep exactly ONE of the
+two).
 
 ## Plugin entry pattern
 
@@ -497,8 +507,9 @@ layout" in `reference/extension-api.md`.
 
 - **IIFE only** (`format: 'iife'`); **`globalThis.activate` /
   `deactivate`**, not ESM exports; **use `ctx` as the parameter name**.
-- **`verbatimModuleSyntax: true`** is mandatory; **no ambient globals in
-  3.0.0** — `import type` every SDK name (TS2304 means you forgot).
+- **`verbatimModuleSyntax: true`** is mandatory; **no ambient globals from
+  the SDK main entry** — `import type` every SDK name (TS2304 means you
+  forgot).
 - **Action handlers get `exec`, not raw input** — read `exec.input`; assert
   it to a `type` alias, never an `interface` (TS2352).
 - **Registration tokens are types-only on the 1.0.0 host** — SDK 3.0.0
@@ -522,8 +533,11 @@ layout" in `reference/extension-api.md`.
   only by exiting on its own or hitting the 120-second cap; keep long
   jobs short and resumable so an abandoned run bounds itself.
 - **No DOM/Node APIs in main.js** — only webviews have a DOM; guard timers
-  with `typeof setTimeout === 'function'`. **Webview CSP blocks inline
-  JS/CSS** — external files only, served via `plugin-panel://`.
+  with `typeof setTimeout === 'function'` and `URL` with
+  `typeof URL === 'function'` (Foundation-bridged v1 subset;
+  `searchParams` THROWS — parse `url.search` manually). **Webview CSP
+  blocks inline JS/CSS** — external files only, served via
+  `plugin-panel://`.
 - **`--ignore-config`** (or equivalent) on every wrapped CLI invocation.
 - **`minHostVersion` is the HOST version**, NOT the SDK version — default
   `"1.0.0"`.
@@ -586,12 +600,19 @@ These are declared on `PluginContext` in 3.0.0 — the 2.x-era "add a local
 ambient declaration for them" workaround is obsolete; delete it if your
 project still carries one.
 
-**Import model:** the package ships no ambient globals. `import type` every
-SDK name you reference:
+**Import model:** the package's main entry ships no ambient globals.
+`import type` every SDK name you reference:
 
 ```ts
 import type { PluginContext, ActionExecutionContext, DependencyStatus } from '@appos.space/plugin-types';
 ```
+
+SDK 3.0.1+ also ships ONE opt-in globals subpath —
+`@appos.space/plugin-types/globals` — typing the host-injected `URL`
+global (AppOS hosts 1.1.0+; always guard with `typeof URL === 'function'`
+— see `patterns.md` §24). It augments nothing unless a tsconfig references
+it; the scaffolded `src/jsc-globals.d.ts` declares the same surface
+locally instead.
 
 The surface splits into two waves:
 
@@ -2323,8 +2344,9 @@ from `@appos.space/plugin-types`. Without it, TypeScript emits runtime
 bundler. The plugin silently fails to activate.
 
 **`lib` has no `DOM`** — plugin code runs in JavaScriptCore, which has no
-`document`/`window`, no browser `fetch` (use `ctx.network.fetch`), and no
-guaranteed timers. Ship a `src/jsc-globals.d.ts` declaring what the runtime
+`document`/`window`, no browser `fetch` (use `ctx.network.fetch`), no
+guaranteed timers, and `URL` only on hosts that inject it (AppOS 1.1.0+).
+Ship a `src/jsc-globals.d.ts` declaring what the runtime
 genuinely provides (picked up automatically by `"include": ["src/**/*.ts"]`):
 
 ```ts
@@ -2344,10 +2366,41 @@ declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: num
 declare const clearTimeout: ((id: number | undefined) => void) | undefined;
 declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
 declare const clearInterval: ((id: number | undefined) => void) | undefined;
+// URL — hosts 1.1.0+ inject a Foundation-bridged URL (immutable v1 subset;
+// searchParams THROWS — parse url.search manually). Typed `| undefined`
+// (older hosts / kill switch / menu-bar contexts lack it): an unguarded
+// `new URL(...)` is a TS18048 error; a `typeof URL === 'function'`-narrowed
+// call compiles (guarded usage: §24). Same surface as the SDK 3.0.1+ opt-in
+// `@appos.space/plugin-types/globals` subpath (`var` matches it) — when
+// pinning >=3.0.1 you may reference that subpath from tsconfig `types`
+// instead and DELETE this block (keeping both double-declares URL).
+interface URL {
+    readonly href: string;
+    readonly protocol: string;
+    readonly hostname: string;
+    readonly host: string;
+    readonly port: string;
+    readonly pathname: string;
+    readonly search: string;
+    readonly hash: string;
+    readonly origin: string;
+    readonly username: string;
+    readonly password: string;
+    toString(): string;
+    toJSON(): string;
+}
+interface URLConstructor {
+    new (url: string | URL, base?: string | URL): URL;
+    canParse(url: string | URL, base?: string | URL): boolean;
+    readonly prototype: URL;
+}
+declare var URL: URLConstructor | undefined;
 ```
 
 Browser globals in `src/` now fail typecheck (`document` → TS2584,
-`window`/`fetch` → TS2304) instead of passing and throwing at runtime. DOM
+`window`/`fetch` → TS2304) instead of passing and throwing at runtime, and
+unguarded `setTimeout(...)` / `new URL(...)` calls fail (TS2722 / TS18048)
+while `typeof`-guarded calls compile (guarded URL usage: §24). DOM
 belongs only in a WebView-side `tsconfig.webview.json` (see the
 `webview-panels` skill), which sets `skipLibCheck: false` because its only
 declaration file is the project-owned `webview/twopanez.d.ts`.
@@ -2798,6 +2851,63 @@ void activate;
   `appos-plugin-ytdlp`
 - `recheckDependencies()` re-probes on demand (both APIs are host-wired;
   ytdlp calls them in production)
+
+## 24. Guarded URL parsing (host-injected Foundation-bridged `URL`)
+
+**File**: `src/services/validate.ts`
+
+AppOS hosts 1.1.0+ inject a native `URL` global — a Foundation-bridged
+implementation (macOS `URL(string:)`, RFC 3986), NOT a WHATWG polyfill.
+Guard EVERY use, exactly like the timer guard in §8: older hosts never had
+it, users can switch it off (`appos.jsc.urlGlobal.disabled`), and menu-bar
+contexts do not carry it in v1 — `minHostVersion` removes only the
+older-host reason for absence.
+
+```ts
+const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
+
+function isValidMediaUrl(raw: string): boolean {
+    if (typeof URL !== 'function') {
+        // Older host / kill switch / menu-bar context: URL is absent.
+        // Decide the fallback per feature — fail CLOSED for
+        // security-shaped checks like this one, or hand-parse when the
+        // feature must still work without URL.
+        return false;
+    }
+    // canParse never throws (unlike the constructor), so probe first.
+    if (!URL.canParse(raw)) return false;
+    const u = new URL(raw);
+    return ALLOWED_PROTOCOLS.has(u.protocol) && u.hostname.length > 0;
+}
+
+void isValidMediaUrl;
+```
+
+**Key points:**
+- `typeof URL === 'function'` before EVERY use — same contract as the
+  timer guard (§8); the §18 ambient file's `| undefined` typing turns an
+  unguarded `new URL(...)` into a compile error, not a runtime surprise.
+- **Parse coherence**: `u.hostname` is lowercased and, for the same input,
+  is the exact host string that enters the AppOS host's own security
+  normalizers (permission validation, initial-hop network checks) —
+  plugin-side URL validation parses identically to host-side enforcement.
+- `URL.canParse(input, base?)` returns a boolean and NEVER throws;
+  `new URL(...)` throws a real `TypeError`
+  (`e instanceof TypeError === true`) on scheme-less or unparseable input,
+  and validates a supplied `base` first.
+- Instances are immutable (readonly accessors; assignment is a
+  sloppy-mode no-op). `String(u)`, template literals, and
+  `JSON.stringify(u)` all yield `u.href`.
+- **No `searchParams` in v1** — the getter THROWS a `TypeError`; parse
+  `u.search` manually (`decodeURIComponent` throws `URIError` on
+  malformed percent sequences, so wrap it in try/catch).
+- Pinned Foundation-vs-WHATWG divergences (intended — do not "fix"):
+  default ports are RETAINED (`https://x:443/` keeps port `"443"`), an
+  empty path stays `""` (not `"/"`), IPv6 hostnames come WITHOUT brackets
+  while `host`/`origin` re-bracket them (`https://[::1]:8443/x` →
+  hostname `"::1"`, host `"[::1]:8443"`, origin `"https://[::1]:8443"`),
+  and pre-encoded query values double-encode on an href round-trip
+  (`%3A` → `%253A`).
 
 ## Further reading
 

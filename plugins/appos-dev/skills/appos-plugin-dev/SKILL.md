@@ -64,7 +64,12 @@ TypeScript source
   annotations, toolbars, popovers) or **WebView panel** (HTML/CSS/JS in
   the bundle via `plugin-panel://`; rich UI, streaming, media, forms).
 - **JSC has no DOM, no Node, no browser APIs.** Timers may or may not
-  exist — guard with `typeof setTimeout === 'function'`.
+  exist — guard with `typeof setTimeout === 'function'`. Same for `URL`:
+  hosts 1.1.0+ inject a Foundation-bridged `URL` global (immutable v1
+  subset, no `searchParams`), but older hosts, the
+  `appos.jsc.urlGlobal.disabled` kill switch, and menu-bar contexts lack
+  it — guard with `typeof URL === 'function'`
+  (`reference/patterns.md` §24).
 
 ## The SDK packages (`@appos.space/*`)
 
@@ -101,9 +106,14 @@ import { urlToPath, formatSize } from '@appos.space/plugin-utils';
 import { vstack, section, listItem, button } from '@appos.space/view-builders';
 ```
 
-The SDK ships no ambient globals — `import type` every `plugin-types` name
-you use (TS2304 on an SDK name means you forgot). The other two packages
-have real runtime exports.
+The SDK's main entry ships no ambient globals — `import type` every
+`plugin-types` name you use (TS2304 on an SDK name means you forgot). The
+other two packages have real runtime exports. One opt-in exception: SDK
+3.0.1+ adds a `@appos.space/plugin-types/globals` subpath typing the
+host-injected `URL` global — it augments nothing unless a tsconfig
+references it, and the scaffolded `src/jsc-globals.d.ts` declares the same
+surface locally instead (works on any 3.x pin; keep exactly ONE of the
+two).
 
 ## Plugin entry pattern
 
@@ -480,8 +490,9 @@ layout" in `reference/extension-api.md`.
 
 - **IIFE only** (`format: 'iife'`); **`globalThis.activate` /
   `deactivate`**, not ESM exports; **use `ctx` as the parameter name**.
-- **`verbatimModuleSyntax: true`** is mandatory; **no ambient globals in
-  3.0.0** — `import type` every SDK name (TS2304 means you forgot).
+- **`verbatimModuleSyntax: true`** is mandatory; **no ambient globals from
+  the SDK main entry** — `import type` every SDK name (TS2304 means you
+  forgot).
 - **Action handlers get `exec`, not raw input** — read `exec.input`; assert
   it to a `type` alias, never an `interface` (TS2352).
 - **Registration tokens are types-only on the 1.0.0 host** — SDK 3.0.0
@@ -505,8 +516,11 @@ layout" in `reference/extension-api.md`.
   only by exiting on its own or hitting the 120-second cap; keep long
   jobs short and resumable so an abandoned run bounds itself.
 - **No DOM/Node APIs in main.js** — only webviews have a DOM; guard timers
-  with `typeof setTimeout === 'function'`. **Webview CSP blocks inline
-  JS/CSS** — external files only, served via `plugin-panel://`.
+  with `typeof setTimeout === 'function'` and `URL` with
+  `typeof URL === 'function'` (Foundation-bridged v1 subset;
+  `searchParams` THROWS — parse `url.search` manually). **Webview CSP
+  blocks inline JS/CSS** — external files only, served via
+  `plugin-panel://`.
 - **`--ignore-config`** (or equivalent) on every wrapped CLI invocation.
 - **`minHostVersion` is the HOST version**, NOT the SDK version — default
   `"1.0.0"`.

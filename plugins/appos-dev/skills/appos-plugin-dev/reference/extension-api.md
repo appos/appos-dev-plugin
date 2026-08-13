@@ -42,12 +42,19 @@ These are declared on `PluginContext` in 3.0.0 — the 2.x-era "add a local
 ambient declaration for them" workaround is obsolete; delete it if your
 project still carries one.
 
-**Import model:** the package ships no ambient globals. `import type` every
-SDK name you reference:
+**Import model:** the package's main entry ships no ambient globals.
+`import type` every SDK name you reference:
 
 ```ts
 import type { PluginContext, ActionExecutionContext, DependencyStatus } from '@appos.space/plugin-types';
 ```
+
+SDK 3.0.1+ also ships ONE opt-in globals subpath —
+`@appos.space/plugin-types/globals` — typing the host-injected `URL`
+global (AppOS hosts 1.1.0+; always guard with `typeof URL === 'function'`
+— see `patterns.md` §24). It augments nothing unless a tsconfig references
+it; the scaffolded `src/jsc-globals.d.ts` declares the same surface
+locally instead.
 
 The surface splits into two waves:
 

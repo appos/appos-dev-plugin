@@ -77,7 +77,10 @@
  *    compile (a snippet that omits its required local ambient declaration
  *    fails here exactly as it fails when copied out alone). The lib + SDK
  *    d.ts SourceFiles are parsed once via a shared memoized CompilerHost, so
- *    per-fence programs stay cheap. The package ships no ambient globals, so
+ *    per-fence programs stay cheap. The package's MAIN ENTRY ships no
+ *    ambient globals (SDK 3.0.1 adds ONE opt-in `/globals` subpath, never
+ *    auto-included — deliberately NOT referenced here; the synthesized
+ *    runtime-globals d.ts below declares its own copy of that surface), so
  *    a fence must `import type { ... } from "@appos.space/plugin-types"` for
  *    any type NAME it references — exactly like real plugin source. The
  *    exact-pinned sibling packages `@appos.space/plugin-utils` and
@@ -91,11 +94,17 @@
  *    JavaScriptCore plugin runtime: lib.es2022 plus a verifier-synthesized
  *    ambient d.ts declaring ONLY the globals the host runtime genuinely
  *    provides — `console` (JSC's JSContext ships a native console; the host
- *    injects none) and the timer quartet `setTimeout` / `clearTimeout` /
+ *    injects none), the timer quartet `setTimeout` / `clearTimeout` /
  *    `setInterval` / `clearInterval` typed `| undefined` (the host injects NO
  *    timers; the teaching contract is "guard with `typeof setTimeout ===
  *    'function'`", and the optional typing makes an UNGUARDED timer call a
- *    type error while a narrowed call compiles). NO lib.dom: `document`,
+ *    type error while a narrowed call compiles), and an optional-typed
+ *    `URL` (`URLConstructor | undefined` — AppOS hosts 1.1.0+ inject a
+ *    Foundation-bridged `URL` global, fn-182, but older hosts, the
+ *    `appos.jsc.urlGlobal.disabled` kill switch, and menu-bar raw
+ *    JSContexts lack it; the teaching contract is "guard with `typeof URL
+ *    === 'function'`", and an UNGUARDED `new URL(...)` is a type error,
+ *    TS18048, while a narrowed call compiles). NO lib.dom: `document`,
  *    `window`, browser `fetch` (plugins use `ctx.network.fetch`), etc. now
  *    FAIL in plugin-runtime fences instead of false-greening against browser
  *    globals that do not exist at runtime. Genuinely WebView-side fences opt
@@ -198,7 +207,7 @@ const DENYLIST = [
   { name: "PluginMenuBarAPI", re: /\bPluginMenuBarAPI\b/ },
   { name: "HostEventsAPI", re: /\bHostEventsAPI\b/ },
   { name: "*Namespace type spelling (pre-rename)", re: /\b[A-Z][A-Za-z]*Namespace\b/ },
-  { name: "ambient `declare function activate` (3.0.0 has no ambient globals)", re: /declare\s+function\s+activate\b/ },
+  { name: "ambient `declare function activate` (never ambient — assign to globalThis; the SDK main entry ships no ambient globals)", re: /declare\s+function\s+activate\b/ },
   { name: "2.4.0-fn50 version marker", re: /2\.4\.0-fn50/ },
   {
     // Scaffold dependency pins on the 2.x SDK line. Deliberately anchored to
@@ -1029,9 +1038,22 @@ fs.mkdirSync(fenceTmpDir, { recursive: true });
  *    the documented contract is "guard with `typeof setTimeout ===
  *    'function'`". Typed `| undefined` so an UNGUARDED call is a type error
  *    (TS2722) while a typeof-narrowed call compiles.
+ *  - `URL`: AppOS hosts 1.1.0+ inject a native Foundation-bridged `URL`
+ *    (fn-182) — but older hosts, the `appos.jsc.urlGlobal.disabled` kill
+ *    switch, and menu-bar raw JSContexts do NOT, so the documented
+ *    contract is "guard with `typeof URL === 'function'`". Typed
+ *    `| undefined` so an UNGUARDED `new URL(...)` is a type error
+ *    (TS18048) while a typeof-narrowed call compiles. The surface below
+ *    mirrors the SDK 3.0.1 opt-in `@appos.space/plugin-types/globals`
+ *    subpath (v1 subset: readonly accessors, `canParse`, NO
+ *    `searchParams` — that getter THROWS at runtime), declared HERE
+ *    because the subpath is opt-in (never auto-included) and the pinned
+ *    SDK may predate it.
  * Deliberately ABSENT: DOM (`document`, `window`), browser `fetch` (plugins
- * use `ctx.network.fetch`), XMLHttpRequest, storage — none exist in the
- * plugin runtime. WebView-side fences take the `webview` flag instead.
+ * use `ctx.network.fetch`), XMLHttpRequest, storage, `URLSearchParams` (the
+ * runtime `url.searchParams` getter throws — parse `url.search` manually) —
+ * none exist in the plugin runtime. WebView-side fences take the `webview`
+ * flag instead.
  */
 const JSC_GLOBALS_DTS = path.join(fenceTmpDir, "__jsc-runtime-globals.d.ts");
 fs.writeFileSync(JSC_GLOBALS_DTS, `// Synthesized by verify-knowledge.mjs — JSC plugin-runtime ambient globals.
@@ -1047,6 +1069,31 @@ declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: num
 declare const clearTimeout: ((id: number | undefined) => void) | undefined;
 declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
 declare const clearInterval: ((id: number | undefined) => void) | undefined;
+// Host-injected Foundation-bridged URL (AppOS 1.1.0+, fn-182) — v1 subset,
+// same surface as the SDK 3.0.1 opt-in globals subpath. \`var\` (not const)
+// matches that subpath's declaration. No searchParams: the runtime getter
+// throws — parse url.search manually.
+interface URL {
+    readonly href: string;
+    readonly protocol: string;
+    readonly hostname: string;
+    readonly host: string;
+    readonly port: string;
+    readonly pathname: string;
+    readonly search: string;
+    readonly hash: string;
+    readonly origin: string;
+    readonly username: string;
+    readonly password: string;
+    toString(): string;
+    toJSON(): string;
+}
+interface URLConstructor {
+    new (url: string | URL, base?: string | URL): URL;
+    canParse(url: string | URL, base?: string | URL): boolean;
+    readonly prototype: URL;
+}
+declare var URL: URLConstructor | undefined;
 `);
 
 let fenceCount = 0;
