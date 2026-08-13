@@ -377,6 +377,7 @@ The step-6 `tsconfig.json` checks `src/**/*.ts` only — without more wiring, no
         "checkJs": true,
         "skipLibCheck": false,
         "forceConsistentCasingInFileNames": true,
+        "types": [],
         "lib": ["ES2020", "DOM", "DOM.Iterable"]
     },
     "include": ["webview/**/*"]
@@ -389,6 +390,8 @@ Then:
 2. Update the `typecheck` script in `package.json` to run both worlds: `"typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json"`.
 
 `skipLibCheck` is `false` here on purpose (unlike the step-6 config): the only declaration file this small program sees is the project-owned `webview/twopanez.d.ts`. With `skipLibCheck: true`, a broken or misspelled type inside that file is silently suppressed — `window.twopanez` degrades to an error-`any` and member typos like `window.twopanez.onMesage(...)` pass, which is exactly what this config exists to catch. With `false`, the corruption itself fails typecheck (`TS2552: Cannot find name 'TwopanezBrige'`).
+
+`"types": []` matters here for the same reason it does in the step-6 config: WKWebView is a browser, not Node. Without it, a later `@types/node` install (it rides in with many dev tools) is auto-included into this program too, and webview code using `process` or `Buffer` passes typecheck and then throws in WKWebView. The DOM globals this program genuinely needs come from `lib` (which `types` does not affect), so the explicitly selected DOM libraries above keep working.
 
 `checkJs` + `strict` means webview `.js` functions need JSDoc `@param`/`@returns` annotations — the skill's `bridge.js` already carries them; copy it as-is. Use `/** @param {any} x */` where typing isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the rsync, so the extra config never ships with the plugin.
 

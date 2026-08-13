@@ -156,6 +156,7 @@ Semantics: `send` is fire-and-forget (arrives host-side via `onWebPanelMessage`)
         "checkJs": true,
         "skipLibCheck": false,
         "forceConsistentCasingInFileNames": true,
+        "types": [],
         "lib": ["ES2020", "DOM", "DOM.Iterable"]
     },
     "include": ["webview/**/*"]
@@ -164,7 +165,7 @@ Semantics: `send` is fire-and-forget (arrives host-side via `onWebPanelMessage`)
 
 …and in `package.json`: `"typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json"`.
 
-With this wiring a misspelled bridge member fails typecheck instead of silently breaking at runtime — `window.twopanez.onMesage(...)` fails with `TS2551 … Did you mean 'onMessage'?`, and wrapper typos like `bridge.sedn(...)` are caught too. Keep `skipLibCheck: false`: the only declaration file in this program is the project-owned `twopanez.d.ts` above, and `skipLibCheck: true` would suppress errors inside it — a broken type reference there degrades `window.twopanez` to an error-`any` and member typos sail through, defeating the whole point of the config. Two things `checkJs` + `strict` demand from webview `.js`: functions need JSDoc `@param`/`@returns` annotations (the bridge below carries them — copy it as-is), and payloads narrowed from `unknown` need a JSDoc type predicate or `/** @type {...} */` cast, as shown below. Use `{any}` where typing genuinely isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the shipped bundle, so the extra config never reaches the host.
+With this wiring a misspelled bridge member fails typecheck instead of silently breaking at runtime — `window.twopanez.onMesage(...)` fails with `TS2551 … Did you mean 'onMessage'?`, and wrapper typos like `bridge.sedn(...)` are caught too. Keep `skipLibCheck: false`: the only declaration file in this program is the project-owned `twopanez.d.ts` above, and `skipLibCheck: true` would suppress errors inside it — a broken type reference there degrades `window.twopanez` to an error-`any` and member typos sail through, defeating the whole point of the config. Keep `"types": []` too: WKWebView is a browser, not Node — without it a later `@types/node` install is auto-included and webview code using `process`/`Buffer` typechecks green, then throws in WKWebView (the DOM globals come from `lib`, which `types` does not affect). Two things `checkJs` + `strict` demand from webview `.js`: functions need JSDoc `@param`/`@returns` annotations (the bridge below carries them — copy it as-is), and payloads narrowed from `unknown` need a JSDoc type predicate or `/** @type {...} */` cast, as shown below. Use `{any}` where typing genuinely isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the shipped bundle, so the extra config never reaches the host.
 
 Wrap the global in a thin `shared/bridge.js` module so panel scripts don't depend on the raw global and can be tested in isolation. Pattern from the ytdlp plugin (whose shipped bridge is JSDoc-annotated the same way):
 

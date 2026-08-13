@@ -2668,15 +2668,14 @@ checkStatus();
   JSDoc-narrow payloads, null-check elements — as in `app.js` above
 - `window.twopanez.send()` / `.request()` go webview→plugin;
   `.onMessage()` receives `postToWebPanel` pushes
-- If also using `pipeShellToWebPanel`, shell chunks
-  (`{ stream, data, bytesTotal }`) arrive via `onMessage` alongside
-  protocol messages — filter by presence of `msg.stream`
+- With `pipeShellToWebPanel`, shell chunks arrive via `onMessage`
+  alongside protocol messages — filter on `msg.stream` (§22)
 
 ## 22. Streaming shell to WebView pipe (pipeShellToWebPanel)
 
-For real-time CLI output in a WebView, use `ctx.ui.pipeShellToWebPanel()`
-instead of manual `onData` + `postToWebPanel`. The host streams chunks
-directly to the WebView, bypassing the plugin's JS thread.
+For real-time CLI output in a WebView, `ctx.ui.pipeShellToWebPanel()`
+streams chunks directly to the WebView, bypassing the plugin's JS thread
+(no manual `onData` + `postToWebPanel`).
 
 ### src/main.ts
 
@@ -2705,15 +2704,22 @@ void runWithPipe;
 
 ### webview/output/app.js
 
-```js
-const terminal = document.getElementById('terminal');
+```js webview
+// Strict checkJs-clean; requires webview/twopanez.d.ts (extension-api.md).
+/** @typedef {{ stream: 'stdout' | 'stderr', data: string, bytesTotal: number }} ShellChunk */
+/** @typedef {{ v: number, type: string, [key: string]: unknown }} ProtocolMessage */
 
-window.twopanez.onMessage((msg) => {
-    // Shell chunks: { stream: "stdout"|"stderr", data: string, bytesTotal: number }
-    if (msg.stream) {
+const terminal = document.getElementById('terminal');
+if (!terminal) throw new Error('missing #terminal');
+
+window.twopanez.onMessage((data) => {
+    const msg = /** @type {Partial<ShellChunk & ProtocolMessage> | null} */ (data);
+    if (typeof msg !== 'object' || msg === null) return;
+    // Shell chunks (ShellChunk shape above) have no protocol envelope
+    if (msg.stream === 'stdout' || msg.stream === 'stderr') {
         const span = document.createElement('span');
-        span.className = msg.stream === 'stderr' ? 'stderr' : 'stdout';
-        span.textContent = msg.data;
+        span.className = msg.stream;
+        span.textContent = msg.data ?? '';
         terminal.appendChild(span);
         terminal.scrollTop = terminal.scrollHeight;
         return;
@@ -2725,19 +2731,11 @@ window.twopanez.onMessage((msg) => {
 });
 ```
 
-**Critical gotchas:**
-- Method is `ctx.ui.pipeShellToWebPanel`, NOT `ctx.shell.pipeShellToWebPanel`
-- 120s hard cap — long-running jobs need a resume loop with
-  `--continue`-style flags
-- `cwd` must be an absolute expanded path (no `~`) — T1 sandbox rejects
-  relative paths
-- Always pass `--ignore-config` or equivalent to neutralize ambient user
-  config
-- Chunks fan out to ALL instances of the panel and carry no instance
-  identifier (`{ stream, data, bytesTotal }` only), so instances cannot
-  filter them — every instance renders the same output. If per-instance
-  isolation matters, use the manual path instead: `ctx.shell.execute({
-  onData })` + `ctx.ui.postToWebPanel(panelId, msg, { instanceId })`
+**Critical gotchas** — §9's list applies verbatim: method is on `ctx.ui`
+NOT `ctx.shell`, 120s hard cap (resume loops for long jobs), absolute
+tilde-expanded `cwd`, always `--ignore-config`, and chunks fan out to ALL
+panel instances with no instance identifier (per-instance isolation needs
+§9's manual `ctx.shell.execute({ onData })` path).
 
 ## 23. Dependency-aware manifest
 
