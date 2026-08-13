@@ -1,0 +1,44 @@
+# verify.yml — fn-165.1 (R2): knowledge-drift gate.
+#
+# This repo had zero CI before fn-165 — a gate nobody runs is not a gate.
+# Runs on every PR + push to main:
+#   1. check-sdk-freshness.sh  — bundled d.ts mirror is byte-equal to the
+#      PUBLISHED @appos.space/plugin-types tarball pinned in .sdk-integrity
+#   2. verify-knowledge.mjs    — teaching surfaces type-check against the
+#      pinned SDK (fence compile + exported-name-set diff + stale-identifier
+#      denylist + count-string consistency)
+#   3. check-compiled-freshness.sh (fn-165.4) — compiled/ artifacts match
+#      their manifest in BOTH directions (source changed without regen /
+#      compiled artifact edited directly)
+#
+# Deterministic diagnostics: `npm ci` against the committed package-lock.json
+# (typescript + @appos.space/* pinned EXACTLY in devDependencies).
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install pinned toolchain (npm ci)
+        run: npm ci
+
+      - name: SDK mirror freshness (integrity pin + byte-equality vs npm tarball)
+        run: scripts/check-sdk-freshness.sh
+
+      - name: Knowledge verification (fence type-check + denylist + counts)
+        run: node scripts/verify-knowledge.mjs
+
+      - name: Compiled-artifact freshness (sources vs compiled/ manifest, both directions)
+        run: scripts/check-compiled-freshness.sh

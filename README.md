@@ -2,14 +2,22 @@
 
 A Claude Code plugin for creating, building, testing, and deploying [AppOS](https://appos.space) workspace manager plugins using the `@appos.space` SDK.
 
-## What's new in v2.0
+## What's new in v3.0
 
-v2.0 is a full rewrite targeting the SDK+WebView flagship pattern used by `appos-plugin-ytdlp`. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern. Key changes:
+v3.0 re-anchors every teaching surface on the published SDK 3.0.0 (`@appos.space/plugin-types@3.0.0`), the surface the shipped AppOS 1.0.0 host actually exposes. The plugin's own version is deliberately aligned with the SDK major it teaches (it is NOT a `minHostVersion` — that stays `"1.0.0"`). Key changes:
 
-- **SDK-based scaffolding** — `new-plugin` now writes `package.json` with `@appos.space/plugin-types` (declaration-only types), `@appos.space/plugin-utils` (runtime helpers), and `@appos.space/view-builders` (typed view builders), plus a `tsconfig.json` with `verbatimModuleSyntax: true` and a `build.mjs` esbuild-API build script.
-- **WebView panels are first-class** — new `webview-panels` skill covers `registerWebPanel`, the host-injected webview bridge, CSP constraints, typed message protocols, throttled broadcasts, and `pipeShellToWebPanel` for streaming CLI output directly to the UI.
-- **22 namespaces, 34 permissions** — updated to match the current `@appos.space/plugin-types` surface. Adds `menubar`, `workspaces`, `smartFolders`, `cache`, `feedback`, `webview`, and more.
-- **minHostVersion landmine documented** — the single most common "plugin won't appear in Settings" bug now has a prominent warning everywhere it matters.
+- **Full 3.0.0 API surface** — 43 namespaces on `PluginContext` (of which 21 core-plugin namespaces: actions, palette, scheduler, vault, store, resources, tokens, bundles, entities, fields, ledger, views, surfaces, protocols, notifications, input, webhook, llm, recipes, sequences, fileSystem) and the 135-scope canonical permission model with 5 legacy aliases (deprecated).
+- **`extensions[]` manifests** — manifest-declarative contributions to core-plugin extension points, including the required `actions.definition` dual-registration pattern: today the manifest entry is catalog/manifest metadata only (host bug fn-163), and the runtime `ctx.actions.register()` call is what provides discovery and execution — see `plugins/appos-dev/skills/appos-plugin-dev/reference/extension-api.md`. <!-- remove when fn-163 lands -->
+- **Scaffold pins `^3.0.0`** — `new-plugin` scaffolds depend on the 3.x SDK line; the SDK main entry ships no ambient globals, so all types are imported from the packages (3.0.1+ adds one opt-in globals subpath typing the host-injected `URL`; scaffolds declare that surface locally in the `src/jsc-globals.ts` `declare global` module instead — a `.ts` module, so it stays type-checked even under the scaffold's `skipLibCheck: true`).
+- **Byte-verbatim type mirror + drift gate** — the bundled d.ts reference is a generated mirror of the published npm tarball, and CI type-checks every fenced code example against it (see "Knowledge verification" below).
+
+## What was new in v2.0
+
+v2.0 was a full rewrite targeting the SDK+WebView flagship pattern used by `appos-plugin-ytdlp`. The legacy ViewDescriptor-only model is still supported but is no longer the primary pattern. Key changes:
+
+- **SDK-based scaffolding** — `new-plugin` writes `package.json` with `@appos.space/plugin-types` (declaration-only types), `@appos.space/plugin-utils` (runtime helpers), and `@appos.space/view-builders` (typed view builders), plus a `tsconfig.json` with `verbatimModuleSyntax: true` and a `build.mjs` esbuild-API build script.
+- **WebView panels are first-class** — the `webview-panels` skill covers `registerWebPanel`, the host-injected webview bridge, CSP constraints, typed message protocols, throttled broadcasts, and `pipeShellToWebPanel` for streaming CLI output directly to the UI.
+- **minHostVersion landmine documented** — the single most common "plugin won't appear in Settings" bug has a prominent warning everywhere it matters.
 - **Canonical reference** — `appos-plugin-ytdlp` is the flagship plugin that exercises every supported SDK feature. Skills and agents point at it for ground truth.
 
 ## Features
@@ -37,6 +45,30 @@ The plugin lives at `plugins/appos-dev` inside this repo (marketplace layout):
 claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 ```
 
+## Repository layout
+
+```
+appos-dev-plugin/
+├── .claude-plugin/
+│   └── marketplace.json     # Marketplace catalog (the repo's ONLY manifest) — points at ./plugins/appos-dev
+├── plugins/
+│   └── appos-dev/           # The actual Claude Code plugin
+│       ├── commands/        # new-plugin, build, deploy, validate
+│       ├── agents/          # plugin-architect, viewdescriptor-builder, webview-panel-builder
+│       ├── skills/
+│       │   ├── appos-plugin-dev/        # Main SDK skill + reference/ (incl. plugin-api/ d.ts mirror)
+│       │   ├── viewdescriptor-authoring/
+│       │   └── webview-panels/
+│       └── compiled/        # GENERATED context artifacts consumed by the AppOS host (do not hand-edit)
+├── scripts/                 # verify-knowledge.mjs, check-sdk-freshness.sh, check-compiled-freshness.sh
+├── package.json             # exact-pinned toolchain for the verification gate
+├── README.md
+├── CLAUDE.md                # contributor instructions for THIS repo (not shipped as plugin context)
+└── LICENSE
+```
+
+The `compiled/` artifacts are generated by the AppOS-Desktop repo's `scripts/compile-factory-context.sh` (which concatenates the skill sources for the host's in-app AI features) — regenerate them from that script rather than editing them; they are validated by freshness manifests, not by the knowledge gate.
+
 ## Commands
 
 | Command | Description |
@@ -51,6 +83,7 @@ claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 | Skill | Triggers on |
 |-------|-------------|
 | appos-plugin-dev | "AppOS plugin", "workspace manager plugin", PluginContext, SDK packages, workspaces, menubar |
+| viewdescriptor-authoring | "ViewDescriptor", "sidebar panel UI", "listItem", "menuActions", "section with badge", column alignment |
 | webview-panels | "registerWebPanel", "postToWebPanel", "pipeShellToWebPanel", "bridge.js", "shell chunks", CSP, webview |
 
 ## Agents
@@ -58,6 +91,7 @@ claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 | Agent | Purpose |
 |-------|---------|
 | plugin-architect | Designs plugin structure from requirements — maps APIs, permissions, rendering mode, settings |
+| viewdescriptor-builder | Builds ViewDescriptor JSON trees — all 17 view types, columns, menuActions, empty/loading states |
 | webview-panel-builder | Builds WebView panels end-to-end — registration, HTML bundle, typed message protocol, pipeShellToWebPanel wiring |
 
 ## Prerequisites
@@ -78,6 +112,27 @@ claude --plugin-dir /path/to/appos-dev-plugin/plugins/appos-dev
 - WebView CSP blocks inline scripts/styles/handlers — everything external, ES modules only
 - `pipeShellToWebPanel` lives on `ctx.ui`, NOT `ctx.shell` (stale docs are wrong)
 - Install path: `~/Library/Application Support/AppOS/plugins/{plugin-id}/` (see `/appos-dev:deploy`)
+
+## Knowledge verification (CI)
+
+Every teaching surface in this repo is gated against the PUBLISHED `@appos.space/plugin-types` package (`.github/workflows/verify.yml` runs all three checks on PR via `npm ci`). Reproduce CI locally with:
+
+```bash
+npm ci          # install the exact-pinned toolchain
+npm run check   # the full CI sequence — the three gates below, in order
+```
+
+`npm run check` expands to:
+
+```bash
+scripts/check-sdk-freshness.sh        # bundled d.ts mirror byte-equal to the npm tarball
+node scripts/verify-knowledge.mjs     # fence type-check + stale-identifier denylist + count consistency
+scripts/check-compiled-freshness.sh   # compiled/ artifacts match their manifest, both directions
+```
+
+The bundled type reference is `plugins/appos-dev/skills/appos-plugin-dev/reference/plugin-api/` — a byte-verbatim mirror of the published tarball's `dist/*.d.ts` files. Its `INDEX.md` records the `dist.integrity` pin, per-file sha256 hashes, and the regeneration command (`scripts/check-sdk-freshness.sh --update`).
+
+> Maintainer note (2026-07): the canonical local clone of this repo is `~/Documents/GitHub/AppOS/appos-dev-plugin`. The historical duplicate clone at `~/Documents/GitHub/appos-dev-plugin` is retired — tombstoned with a `RETIRED.md` pointing here — so edits land in exactly one working copy.
 
 ## License
 

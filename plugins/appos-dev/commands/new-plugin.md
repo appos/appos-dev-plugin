@@ -42,7 +42,7 @@ These skills contain the canonical APIs, file layout, and gotchas. Do not procee
 ## 3. Plan permissions and APIs
 
 From the one-sentence description, decide:
-- **Permissions** — start minimal. `ui.sidebar` for any panel, `ui.webPanel` + `webview` for WebView panels (BOTH required), `shell.execute` + `shellCommands: [...]` for CLI wrappers, `filesystem.read`/`filesystem.write` for file work, `cache` for persistence.
+- **Permissions** — start minimal. `ui.sidebar` for any panel, `ui.webPanel` for WebView panels (do NOT add the legacy `webview` alias — it has no host-side entry, is never granted, and `/appos-dev:validate` flags it as an ERROR), `shell.execute` + `shellCommands: [...]` for CLI wrappers, `filesystem.read`/`filesystem.write` for file work, `cache` for persistence.
 - **System dependencies** — CLIs to probe on startup (with `check.command`, `check.args`, `versionPattern`, `minVersion`, `installHint`, `installUrl`).
 - **Settings** — `string`, `enum`, `bool`, or `number` keys shown in the plugin settings sheet. The manifest schema's settings type enum is `bool` — writing `boolean` fails `/appos-dev:validate` schema validation.
 - **Rendering mode** — confirms from step 1. Drives whether you create `webview/` or not.
@@ -72,18 +72,20 @@ If WebView panels are needed, also create `$TARGET/webview/{panelId}/` and `$TAR
         "typecheck": "tsc --noEmit"
     },
     "devDependencies": {
-        "@appos.space/plugin-types": "^2.4.0",
+        "@appos.space/plugin-types": "^3.0.0",
         "esbuild": "^0.20.0",
         "typescript": "^5.4.0"
     },
     "dependencies": {
-        "@appos.space/plugin-utils": "^2.4.0",
-        "@appos.space/view-builders": "^2.4.0"
+        "@appos.space/plugin-utils": "^3.0.0",
+        "@appos.space/view-builders": "^3.0.0"
     }
 }
 ```
 
 If the plugin doesn't use ViewDescriptor panels at all, you can drop `@appos.space/view-builders` from `dependencies`. If it doesn't need runtime helpers, drop `@appos.space/plugin-utils` too. **`@appos.space/plugin-types` stays in `devDependencies` always** — it's type-only.
+
+If the plugin uses a WebView panel, step 10 extends the `typecheck` script to also cover `webview/` sources — leave it as written for now.
 
 <details>
 <summary>SDK contributors only: developing against a local plugin-sdk checkout</summary>
@@ -92,7 +94,7 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
 
 </details>
 
-## 6. Write tsconfig.json
+## 6. Write tsconfig.json + src/jsc-globals.ts
 
 **MANDATORY**: `verbatimModuleSyntax: true` is required because `@appos.space/plugin-types` is declaration-only. Without this flag, TypeScript emits runtime `import` statements that try to resolve a non-existent module at runtime.
 
@@ -109,14 +111,78 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
-        "lib": ["ES2020", "DOM"]
+        "types": [],
+        "lib": ["ES2022"]
     },
     "include": ["src/**/*.ts"],
     "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }
 ```
 
-Note `"lib": ["ES2020", "DOM"]` — the `DOM` entry is only needed if the plugin ships `webview/*.js` files it wants to typecheck. For pure plugin-side code, `"ES2020"` alone is fine.
+Note `"lib": ["ES2022"]` — deliberately **no `DOM`**. Plugin-side code runs in JavaScriptCore: there is no `document`, no `window`, no browser `fetch` (use `ctx.network.fetch`), no guaranteed timers, and `URL` only on hosts that inject it (AppOS 1.1.0+ — and users can switch it off). Putting `DOM` in this lib would make all of those typecheck clean and then throw at runtime. `"types": []` closes the same door from the `node_modules` side: without it, any `@types/*` package installed later (most commonly `@types/node`, which rides in with many dev tools) is auto-included and silently injects `process` plus Node's timer globals into this program — `process.env`-using code would then pass `npm run typecheck` and throw in JavaScriptCore. The globals the runtime genuinely provides come from a scaffolded `declare global` module instead — write `src/jsc-globals.ts` (it is matched by `"include": ["src/**/*.ts"]`, so it is part of this program automatically):
+
+```ts
+// src/jsc-globals.ts — ambient globals of the AppOS JavaScriptCore plugin
+// runtime, written as a `declare global` .ts MODULE (the same pattern as the
+// SDK's own globals source), NOT a .d.ts: `skipLibCheck: true` skips every
+// .d.ts in the program — project-owned files included — so a typo inside a
+// .d.ts version of this file would be silently suppressed and degrade
+// console / timers / URL to error-`any`. A .ts module is always fully
+// type-checked. JSC ships a native console; the host injects NO timers, so
+// the timer globals are typed `| undefined` — an unguarded setTimeout(...)
+// is a type error (TS2722) while a `typeof setTimeout === 'function'`-
+// narrowed call compiles. Do not add DOM globals here: document/window/
+// browser fetch do not exist in the plugin runtime (use ctx.network.fetch).
+export {};
+
+declare global {
+    var console: {
+        log(...args: unknown[]): void;
+        info(...args: unknown[]): void;
+        warn(...args: unknown[]): void;
+        error(...args: unknown[]): void;
+        debug(...args: unknown[]): void;
+        trace(...args: unknown[]): void;
+    };
+    var setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+    var clearTimeout: ((id: number | undefined) => void) | undefined;
+    var setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+    var clearInterval: ((id: number | undefined) => void) | undefined;
+    // URL — AppOS hosts 1.1.0+ inject a native Foundation-bridged URL global
+    // (immutable v1 subset; NO searchParams — that getter THROWS at runtime,
+    // parse url.search manually). Older hosts, the appos.jsc.urlGlobal.disabled
+    // kill switch, and menu-bar contexts lack it, so it is typed `| undefined`:
+    // an unguarded `new URL(...)` is a type error (TS18048) while a
+    // `typeof URL === 'function'`-narrowed call compiles. Same surface as the
+    // SDK 3.0.1+ opt-in `@appos.space/plugin-types/globals` subpath (`var`
+    // matches its declaration) — if you pin SDK >=3.0.1 you may switch the
+    // tsconfig `types` array from `[]` to ["@appos.space/plugin-types/globals"]
+    // instead and DELETE this URL block (keeping both would double-declare URL).
+    interface URL {
+        readonly href: string;
+        readonly protocol: string;
+        readonly hostname: string;
+        readonly host: string;
+        readonly port: string;
+        readonly pathname: string;
+        readonly search: string;
+        readonly hash: string;
+        readonly origin: string;
+        readonly username: string;
+        readonly password: string;
+        toString(): string;
+        toJSON(): string;
+    }
+    interface URLConstructor {
+        new (url: string | URL, base?: string | URL): URL;
+        canParse(url: string | URL, base?: string | URL): boolean;
+        readonly prototype: URL;
+    }
+    var URL: URLConstructor | undefined;
+}
+```
+
+With this pair, accidental browser-global use in `src/` fails `npm run typecheck` (`document` → TS2584, `window`/`fetch` → TS2304), an unguarded `setTimeout(...)` fails TS2722, an unguarded `new URL(...)` fails TS18048, and `typeof setTimeout === 'function'` / `typeof URL === 'function'`-guarded calls compile — matching what actually happens at runtime. `skipLibCheck: true` stays on here because this program pulls in the external SDK `.d.ts` from `node_modules` — and it can never mute the declarations above, because `src/jsc-globals.ts` is a `.ts` module, which `skipLibCheck` does not skip; the WebView config in step 10 sets it to `false` because its only declaration file is project-owned. This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — DOM belongs exclusively to their `tsconfig.webview.json`, which step 10 writes and chains into `npm run typecheck`.
 
 ## 7. Write build.mjs
 
@@ -156,7 +222,7 @@ if (isWatch) {
 
 ## 8. Write plugin.json
 
-**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.0.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
+**LANDMINE**: `minHostVersion` refers to the host app's `CFBundleShortVersionString` (currently `1.0.0`), NOT the `@appos.space/plugin-types` SDK version. Defaulting to the SDK version (e.g. `"3.0.0"`, or the older `"2.4.0"`) will cause `DependencyResolver.swift` to silently reject the plugin before it reaches the plugins sheet. **Always default to `"1.0.0"`.**
 
 ```json
 {
@@ -177,7 +243,32 @@ if (isWatch) {
 }
 ```
 
-Add permissions incrementally based on what the plugin actually does. If it uses a WebView panel, add BOTH `"ui.webPanel"` AND `"webview"`. If it uses a CLI, add `shell.execute`, `"shellCommands": ["your-tool"]`, and a `dependencies.system[]` entry with a check command and install hint. If it uses the menubar, add `"menubar"` and remember to call `ctx.menubar.setContent()` to populate the popover (without it, clicking shows "No content").
+Add permissions incrementally based on what the plugin actually does. If it uses a WebView panel, add `"ui.webPanel"` only — do NOT add the legacy `"webview"` alias (it passes schema validation but has no host-side entry, so it is silently never granted, and `/appos-dev:validate`'s legacy-alias post-check reports it as an ERROR). If it uses a CLI, add `shell.execute`, `"shellCommands": ["your-tool"]`, and a `dependencies.system[]` entry with a check command and install hint. If it uses the menubar, add `"menubar"` and remember to call `ctx.menubar.setContent()` to populate the popover (without it, clicking shows "No content").
+
+### Optional: declare public actions via `extensions[]`
+
+If the plugin exposes public actions (command palette, automation), add an `extensions[]` array with `actions.definition` contributions (requires the `actions.register` permission):
+
+```json
+"extensions": [
+    {
+        "extensionPoint": "actions.definition",
+        "contribution": {
+            "id": "refresh-stats",
+            "displayName": "Refresh File Stats",
+            "description": "Re-scan the active directory.",
+            "inputSchema": { "type": "object" },
+            "visibility": ["palette"],
+            "risk": "read",
+            "approval": "auto"
+        }
+    }
+]
+```
+
+**Dual registration is required.** Manifest-declared actions don't reach discovery on their own yet (host bug fn-163; see `skills/appos-plugin-dev/reference/extension-api.md`): an `actions.definition` contribution alone currently never becomes palette-visible or invokable — no cold-start palette entry, no `ctx.actions.all()` stub, no Settings → Actions row. Today the manifest entry is catalog/manifest metadata (visible in catalogs and manifest scans), not runtime discovery. Pair EVERY `actions.definition` contribution with a runtime `ctx.actions.register(...)` or `ctx.actions.registerFromCommand(...)` call in `activate()` using the same id — the runtime registration is what makes the action discoverable and executable. Ship BOTH, exactly as `appos-plugin-ytdlp` does. <!-- remove when fn-163 lands -->
+
+**Removal marker**: when you retire an action, remove BOTH sites — the runtime `register()` call and the manifest contribution. A leftover manifest stub is stale catalog/manifest metadata today, and once fn-163 lands it would be replayed into discovery at every cold start as a permanently non-executable palette entry.
 
 ## 9. Write src/main.ts
 
@@ -250,7 +341,10 @@ Minimal `index.html`:
 Then in `src/main.ts`, register the panel:
 
 ```ts
-ctx.ui.registerWebPanel('{panelId}', {
+const disposables: Array<() => void | Promise<void>> = [];  // declared once, in step 9
+
+// SDK 3.0.0 types both calls as returning registration-token strings.
+const panelToken = ctx.ui.registerWebPanel('{panelId}', {
     title: '{Panel Title}',
     icon: 'square.grid.2x2',          // SF Symbol
     htmlPath: 'webview/{panelId}/index.html',
@@ -258,14 +352,48 @@ ctx.ui.registerWebPanel('{panelId}', {
 });
 
 let panelDisposed = false;
-ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
+const messageToken = ctx.ui.onWebPanelMessage('{panelId}', (envelope) => {
     if (panelDisposed) return;
     // handle messages from webview
 });
 disposables.push(() => { panelDisposed = true; });
 ```
 
-`onWebPanelMessage` does NOT return a disposer — never push its return value into `disposables`. Use a `disposed` flag as above. See the `webview-panels` skill → "Cleanup" section.
+Capture the string tokens (`panelToken`, `messageToken`) per the 3.0.0 types, but do NOT build cleanup on their runtime values — the shipped 1.0.0 host returns `undefined` from both calls at runtime (host↔d.ts reconciliation is a known SDK follow-up), and it removes panels and message handlers automatically on plugin unload. Use the `disposed` flag as above for mid-life teardown; calling `onWebPanelMessage` again for the same panel replaces the previous handler. See the `webview-panels` skill → "Cleanup" section.
+
+### Wire webview sources into the typecheck
+
+The step-6 `tsconfig.json` checks `src/**/*.ts` only — without more wiring, nothing under `webview/` (neither the bridge declaration nor your panel `.js`) ever enters `npm run typecheck`, and a misspelled `window.twopanez` / `bridge` member fails silently at runtime. Write `tsconfig.webview.json` next to `tsconfig.json`:
+
+```json
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "allowJs": true,
+        "checkJs": true,
+        "skipLibCheck": false,
+        "forceConsistentCasingInFileNames": true,
+        "types": [],
+        "lib": ["ES2020", "DOM", "DOM.Iterable"]
+    },
+    "include": ["webview/**/*"]
+}
+```
+
+Then:
+
+1. Copy the `window.twopanez` ambient declaration from the `webview-panels` skill ("The bridge" section) to `webview/twopanez.d.ts` — it is what types the host-injected global for this config.
+2. Update the `typecheck` script in `package.json` to run both worlds: `"typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json"`.
+
+`skipLibCheck` is `false` here on purpose (unlike the step-6 config): the only declaration file this small program sees is the project-owned `webview/twopanez.d.ts`. With `skipLibCheck: true`, a broken or misspelled type inside that file is silently suppressed — `window.twopanez` degrades to an error-`any` and member typos like `window.twopanez.onMesage(...)` pass, which is exactly what this config exists to catch. With `false`, the corruption itself fails typecheck (`TS2552: Cannot find name 'TwopanezBrige'`).
+
+`"types": []` matters here for the same reason it does in the step-6 config: WKWebView is a browser, not Node. Without it, a later `@types/node` install (it rides in with many dev tools) is auto-included into this program too, and webview code using `process` or `Buffer` passes typecheck and then throws in WKWebView. The DOM globals this program genuinely needs come from `lib` (which `types` does not affect), so the explicitly selected DOM libraries above keep working.
+
+`checkJs` + `strict` means webview `.js` functions need JSDoc `@param`/`@returns` annotations — the skill's `bridge.js` already carries them; copy it as-is. Use `/** @param {any} x */` where typing isn't worth it. `/appos-dev:deploy` already excludes `tsconfig.*.json` from the rsync, so the extra config never ships with the plugin.
 
 ## 11. Build
 
@@ -292,6 +420,14 @@ Also verify the manifest is well-formed and has `minHostVersion: "1.0.0"`:
 ```bash
 node -e "console.log(JSON.parse(require('fs').readFileSync('{target-directory}/plugin.json','utf8')).minHostVersion)"
 ```
+
+Run the typecheck — it must exit 0:
+
+```bash
+cd "{target-directory}" && npm run typecheck
+```
+
+The typecheck models the real runtimes on both sides. Plugin side (`src/`): browser globals fail (`document` → TS2584, `window`/`fetch` → TS2304) and an unguarded `setTimeout(...)` fails TS2722 — if any of those fire, the code would have thrown in JavaScriptCore at runtime; fix the code (guard timers, use `ctx.network.fetch`) rather than adding `DOM` to the step-6 lib. For WebView plugins it also covers `webview/` via `tsconfig.webview.json` — a misspelled bridge member like `window.twopanez.onMesage(...)` fails there with `TS2551 … Did you mean 'onMessage'?` instead of silently doing nothing at runtime.
 
 ## 13. Report
 

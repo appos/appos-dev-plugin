@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "artifacts": {
+    "cli-chat-system-prompt.md": "0ace5e39d569fac84ca22e244bfb5dae8242b14e059395894f16f712b1ecc170",
+    "plugin-factory-context.md": "229f7fc7d15a6650f0923cf33d88e0712ecbb20a184df24e22d26a2c34783720"
+  },
+  "sources": {
+    "SKILL.md": "f4868a887ab7726ca8c6463b90953a1efb82712fb1a3df5e68888f9b43644cd6",
+    "reference/extension-api.md": "b37b24cd2a5e02345b361ee08aea29a885084ebfb4a8a73358036a91572c49e8",
+    "reference/patterns.md": "93fc7e840176ab625fe848fb6df92f1c98301b5e13811906696eca3be91822f9",
+    "reference/plugin-api/index.d.ts": "cbdd7a4aa96001d3fe664427ffc30039ce09ba80dca2eee32960c5c925c4d8d4",
+    "reference/plugin-api/core.d.ts": "3e951ef56e6148879fbe92d592399711f4bad5556f1549233ec3d32d0d9c49f9",
+    "reference/plugin-api/views.d.ts": "dc3ae9b751b1cce8541e269c8000001dd819622fe1d5dfdbee7c6ca88c06f551",
+    "reference/plugin-api/namespaces.d.ts": "17c3364ad01ecc2b341a487bc0f286afa11cb2471f1fddb3735b1b0379bdad17",
+    "reference/plugin-api/namespaces-core-plugins.d.ts": "1b6c76836a6cfc87a3699ab40b8f6fd19d2c88bc8d6f90cd4ca6604d236cb7f6",
+    "reference/plugin-api/permissions.d.ts": "cd947682aed902d4878e56a03cd864f930fdc65f61588cc9e7c132c28772ab18",
+    "reference/plugin-api/colors.d.ts": "dbabe48e8d4615db877035f422c2e3200b591641161037a01cda60e51ab0981d",
+    "reference/plugin-api/fonts.d.ts": "479ade3790891953f4302d5f8729ad67621f9b69dccec317bb8e5b47175d58ac",
+    "reference/plugin-api/icons.d.ts": "8465ce60f8e4f426dd04777cce38ce03dbcaa113f4c115ce76a715020ce9960d"
+  }
+}

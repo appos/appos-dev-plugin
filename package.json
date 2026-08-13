@@ -1,0 +1,18 @@
+{
+  "name": "appos-dev-plugin-verify",
+  "private": true,
+  "description": "Verification tooling for the appos-dev Claude Code plugin knowledge base (fn-165). Not a published package — devDependencies pin the exact SDK + compiler used by scripts/verify-knowledge.mjs and scripts/check-sdk-freshness.sh.",
+  "type": "module",
+  "scripts": {
+    "verify": "node scripts/verify-knowledge.mjs",
+    "freshness": "scripts/check-sdk-freshness.sh",
+    "freshness:compiled": "scripts/check-compiled-freshness.sh",
+    "check": "npm run freshness && npm run verify && npm run freshness:compiled"
+  },
+  "devDependencies": {
+    "@appos.space/plugin-types": "3.0.0",
+    "@appos.space/plugin-utils": "3.0.0",
+    "@appos.space/view-builders": "3.0.0",
+    "typescript": "5.9.3"
+  }
+}

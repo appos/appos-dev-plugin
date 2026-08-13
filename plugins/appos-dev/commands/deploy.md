@@ -12,7 +12,7 @@ Deploy the built plugin to `~/Library/Application Support/AppOS/plugins/`.
 Locate `plugin.json` in the current directory or parent directories. Read it to get:
 - `id` (target install directory name)
 - `name` (for the report)
-- `minHostVersion` — verify this is NOT set to an SDK version like `"2.4.0"`. If it is, STOP and warn the user: this is the minHostVersion landmine — it must be a host `CFBundleShortVersionString` (`"1.0.0"` is the safe default). See `appos-plugin-dev` skill → "minHostVersion landmine" section.
+- `minHostVersion` — verify this is NOT set to an SDK version like `"3.0.0"` or `"2.4.0"`. If it is, STOP and warn the user: this is the minHostVersion landmine — it must be a host `CFBundleShortVersionString` (`"1.0.0"` is the safe default). See `appos-plugin-dev` skill → "minHostVersion landmine" section.
 
 ## 2. Verify the build exists
 

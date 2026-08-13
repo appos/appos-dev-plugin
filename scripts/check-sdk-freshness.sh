@@ -1,0 +1,488 @@
+#!/usr/bin/env bash
+# check-sdk-freshness.sh — fn-165.1 (R1)
+#
+# Guards the bundled SDK type mirror
+#   plugins/appos-dev/skills/appos-plugin-dev/reference/plugin-api/
+# against drift from the PUBLISHED @appos.space/plugin-types package.
+#
+# The mirror is a BYTE-VERBATIM copy of the published tarball's dist/*.d.ts
+# files (.d.ts.map files dropped) plus a generated INDEX.md. The published
+# npm tarball — pinned by its registry `dist.integrity` sha512 in the
+# committed .sdk-integrity file — is the SOLE canonical source. Neither the
+# plugin-sdk working tree nor the host's plugin-api.d.ts is ever consulted.
+#
+# Check mode (default) fails NON-ZERO when ANY of these drift:
+#   0. pin/toolchain coherence: package.json's devDependency on the package is
+#      not EXACTLY the pinned version, or the package-lock.json entry carries a
+#      different version/integrity. verify-knowledge.mjs type-checks against
+#      the `npm ci`-installed package (lockfile truth); this gate guarantees
+#      that is the SAME artifact this script verifies the mirror against — a
+#      devDependency/lockfile bump without `--update` FAILS here instead of
+#      silently green-lighting the old mirror
+#   1. registry `dist.integrity` for the pinned version != committed pin
+#   2. sha512 of the actually-downloaded tarball bytes != committed pin
+#   3. any mirrored *.d.ts differs byte-for-byte from the tarball's dist/ copy
+#   4. the mirror contains extra/missing *.d.ts files vs the tarball
+#   5. INDEX.md is missing, or its recorded version / integrity / per-file
+#      sha256 values / derived surface counts do not match the recomputed truth
+#
+# Update mode (--update) regenerates the mirror + INDEX.md + .sdk-integrity
+# from the published tarball for the version in package.json devDependencies
+# (or $1 after --update). Bump the devDependency + lockfile FIRST:
+#   npm install --save-dev --save-exact @appos.space/plugin-types@<version>
+# then run --update, then commit everything together. --update REFUSES to run
+# when the resolved version does not match BOTH package.json and
+# package-lock.json, or when the lockfile integrity differs from the registry
+# dist.integrity it is about to pin — so a successful update always leaves the
+# whole toolchain coherent and the next check-mode run cannot fail Gate 0 on a
+# desynchronized state.
+#
+# Usage:
+#   scripts/check-sdk-freshness.sh                # verify (CI + local)
+#   scripts/check-sdk-freshness.sh --update       # regenerate mirror for the
+#                                                 # version pinned in package.json
+#   scripts/check-sdk-freshness.sh --update 3.1.0 # regenerate for an explicit
+#                                                 # version (must already match
+#                                                 # package.json + lockfile)
+#   scripts/check-sdk-freshness.sh --help
+#
+# Exit codes:
+#   0  fresh (or --update succeeded)
+#   1  drift detected (check mode)
+#   2  usage / environment error (no npm, no network, missing pin file, ...)
+#   130 / 143  interrupted by SIGINT / SIGTERM (after transactional cleanup)
+#
+# Requires: npm (network access to the registry), openssl, node.
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 2
+
+PKG="@appos.space/plugin-types"
+MIRROR_DIR="plugins/appos-dev/skills/appos-plugin-dev/reference/plugin-api"
+PIN_FILE=".sdk-integrity"
+INDEX_FILE="$MIRROR_DIR/INDEX.md"
+
+MODE="check"
+REQ_VERSION=""
+case "${1:-}" in
+  --help|-h) sed -n '2,48p' "${BASH_SOURCE[0]}"; exit 0 ;;
+  --update)  MODE="update"; REQ_VERSION="${2:-}" ;;
+  "")        ;;
+  *) echo "[check-sdk-freshness] ERROR unknown argument: $1 (see --help)" >&2; exit 2 ;;
+esac
+
+for tool in npm openssl node; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "[check-sdk-freshness] ERROR $tool not found on PATH" >&2; exit 2; }
+done
+
+sri_sha512() { # SRI sha512 of a file, matching npm's dist.integrity format
+  printf 'sha512-%s' "$(openssl dgst -sha512 -binary "$1" | openssl base64 -A)"
+}
+
+sha256_of() { openssl dgst -sha256 -r "$1" | awk '{print $1}'; }
+
+# Canonical INDEX.md `- surface (...)` line, with EVERY count derived from the
+# d.ts directory in $1 (deriveCounts in verify-knowledge.mjs — nothing
+# hardcoded, so an SDK that adds/removes a PluginContext metadata scalar or a
+# dynamic scope family changes this line). Shared by --update (generation) and
+# check mode (validation) so the two phrasings cannot drift from each other.
+surface_line() {
+  local counts ns core_ns scalars scopes legacy dynfam total
+  counts="$(node scripts/verify-knowledge.mjs --counts "$1")" || return 1
+  ns="$(node -pe "($counts).namespaces")" || return 1
+  core_ns="$(node -pe "($counts).corePluginNamespaces")" || return 1
+  scalars="$(node -pe "($counts).metadataScalars")" || return 1
+  scopes="$(node -pe "($counts).canonicalScopes")" || return 1
+  legacy="$(node -pe "($counts).legacyAliases")" || return 1
+  dynfam="$(node -pe "($counts).dynamicScopeFamilies")" || return 1
+  total="$(cat "$1"/*.d.ts | wc -l | tr -d ' ')" || return 1
+  printf -- '- surface (derived from these files): %s API namespaces on `PluginContext` (of which %s core-plugin namespaces) + %s metadata scalars, %s canonical permission scopes, %s legacy aliases (deprecated), %s dynamic `oauth.<provider>` scope family, %s lines total' \
+    "$ns" "$core_ns" "$scalars" "$scopes" "$legacy" "$dynfam" "$total"
+}
+
+# ---------------------------------------------------------------------------
+# Resolve the version under test.
+# ---------------------------------------------------------------------------
+if [[ "$MODE" == "update" ]]; then
+  DEVDEP_VERSION="$(node -p "require('./package.json').devDependencies?.['$PKG'] ?? ''")" || exit 2
+  LOCK_VERSION="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.version ?? ''")" || exit 2
+  if [[ -n "$REQ_VERSION" ]]; then
+    VERSION="$REQ_VERSION"
+  else
+    VERSION="$DEVDEP_VERSION"
+  fi
+  # Update-mode pre-flight (version prongs of check-mode Gate 0): the resolved
+  # version must already be what the npm toolchain installs. Without this, an
+  # explicit `--update <version>` that differs from the devDependency/lockfile
+  # would regenerate the mirror + pin and exit 0 while verify-knowledge.mjs
+  # still type-checks against the OLD `npm ci`-installed package — and the very
+  # next check-mode run would fail Gate 0. Reject up front instead; this script
+  # never mutates package.json/package-lock.json.
+  if [[ -z "$VERSION" || "$DEVDEP_VERSION" != "$VERSION" || "$LOCK_VERSION" != "$VERSION" ]]; then
+    echo "[check-sdk-freshness] ERROR --update version '${VERSION:-<none>}' does not match the installed npm toolchain:" >&2
+    echo "  package.json devDependency $PKG = '${DEVDEP_VERSION:-<missing>}'" >&2
+    echo "  package-lock.json resolves $PKG@'${LOCK_VERSION:-<missing>}'" >&2
+    echo "  fix: npm install --save-dev --save-exact '$PKG@${VERSION:-<version>}', then re-run --update and commit everything together" >&2
+    exit 2
+  fi
+else
+  if [[ ! -f "$PIN_FILE" ]]; then
+    echo "[check-sdk-freshness] ERROR pin file missing: $PIN_FILE (run --update once)" >&2
+    exit 2
+  fi
+  VERSION="$(sed -n 's/^version=//p' "$PIN_FILE")"
+  PINNED_INTEGRITY="$(sed -n 's/^integrity=//p' "$PIN_FILE")"
+  PINNED_PKG="$(sed -n 's/^package=//p' "$PIN_FILE")"
+  if [[ -z "$VERSION" || -z "$PINNED_INTEGRITY" || "$PINNED_PKG" != "$PKG" ]]; then
+    echo "[check-sdk-freshness] ERROR malformed pin file $PIN_FILE (need package=/version=/integrity= lines; package must be $PKG)" >&2
+    exit 2
+  fi
+
+  # Gate 0: pin ⇄ npm-toolchain coherence. The devDependency must be the EXACT
+  # pinned version (no ranges) and the lockfile entry must carry the same
+  # version + integrity, so verify-knowledge.mjs (which type-checks against the
+  # `npm ci`-installed package) and this script verify the SAME artifact.
+  DEVDEP_VERSION="$(node -p "require('./package.json').devDependencies?.['$PKG'] ?? ''")" || exit 2
+  LOCK_VERSION="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.version ?? ''")" || exit 2
+  LOCK_INTEGRITY="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.integrity ?? ''")" || exit 2
+  PIN_RC=0
+  if [[ "$DEVDEP_VERSION" != "$VERSION" ]]; then
+    echo "[check-sdk-freshness] FAIL package.json devDependency '$PKG' is '$DEVDEP_VERSION' but $PIN_FILE pins '$VERSION' (must match EXACTLY — no ranges)" >&2
+    PIN_RC=1
+  fi
+  if [[ "$LOCK_VERSION" != "$VERSION" ]]; then
+    echo "[check-sdk-freshness] FAIL package-lock.json resolves $PKG@'$LOCK_VERSION' but $PIN_FILE pins '$VERSION'" >&2
+    PIN_RC=1
+  fi
+  if [[ "$LOCK_INTEGRITY" != "$PINNED_INTEGRITY" ]]; then
+    echo "[check-sdk-freshness] FAIL package-lock.json integrity for $PKG != pinned integrity" >&2
+    echo "  pinned   = $PINNED_INTEGRITY" >&2
+    echo "  lockfile = $LOCK_INTEGRITY" >&2
+    PIN_RC=1
+  fi
+  if [[ "$PIN_RC" -ne 0 ]]; then
+    echo "[check-sdk-freshness] fix: bump/restore the devDependency + lockfile, then run scripts/check-sdk-freshness.sh --update and commit everything together" >&2
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Fetch: registry integrity + the tarball itself (both modes need the bytes).
+# ---------------------------------------------------------------------------
+REGISTRY_INTEGRITY="$(npm view "$PKG@$VERSION" dist.integrity 2>/dev/null)"
+if [[ -z "$REGISTRY_INTEGRITY" ]]; then
+  echo "[check-sdk-freshness] ERROR could not read dist.integrity for $PKG@$VERSION from the registry (network? version exists?)" >&2
+  exit 2
+fi
+
+# Portable mktemp: GNU (Linux CI) requires >=3 X's in the template; BSD (macOS)
+# accepts an explicit path template too. An explicit path works on both.
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sdk-freshness.XXXXXXXX")" || exit 2
+trap 'rm -rf "$TMP_DIR"' EXIT
+# Route fatal signals through exit so the EXIT cleanup (here the temp dir;
+# in --update the transaction-aware cleanup that later replaces this trap)
+# runs DETERMINISTICALLY. Verified on bash 3.2.57: untrapped SIGTERM happens
+# to run the EXIT trap, but untrapped SIGINT sent to the script pid is
+# deferred while a foreground child runs and can be dropped entirely —
+# explicit traps make both behave identically.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+( cd "$TMP_DIR" && npm pack "$PKG@$VERSION" --silent >/dev/null 2>&1 )
+TARBALL="$(find "$TMP_DIR" -maxdepth 1 -name '*.tgz' | head -1)"
+if [[ -z "$TARBALL" ]]; then
+  echo "[check-sdk-freshness] ERROR npm pack $PKG@$VERSION produced no tarball" >&2
+  exit 2
+fi
+TARBALL_INTEGRITY="$(sri_sha512 "$TARBALL")"
+
+tar xzf "$TARBALL" -C "$TMP_DIR" || { echo "[check-sdk-freshness] ERROR tarball extraction failed" >&2; exit 2; }
+DIST_DIR="$TMP_DIR/package/dist"
+[[ -d "$DIST_DIR" ]] || { echo "[check-sdk-freshness] ERROR tarball has no dist/ directory" >&2; exit 2; }
+
+TARBALL_DTS=()
+while IFS= read -r f; do TARBALL_DTS+=("$(basename "$f")"); done \
+  < <(find "$DIST_DIR" -maxdepth 1 -name '*.d.ts' | sort)
+if [[ "${#TARBALL_DTS[@]}" -eq 0 ]]; then
+  echo "[check-sdk-freshness] ERROR tarball dist/ contains no .d.ts files" >&2
+  exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# --update: regenerate mirror + INDEX.md + pin file, then exit.
+# ---------------------------------------------------------------------------
+if [[ "$MODE" == "update" ]]; then
+  if [[ "$TARBALL_INTEGRITY" != "$REGISTRY_INTEGRITY" ]]; then
+    echo "[check-sdk-freshness] FAIL downloaded tarball bytes do not hash to the registry dist.integrity — refusing to mirror" >&2
+    echo "  registry = $REGISTRY_INTEGRITY" >&2
+    echo "  tarball  = $TARBALL_INTEGRITY" >&2
+    exit 1
+  fi
+
+  # Update-mode pre-flight (integrity prong of check-mode Gate 0): the lockfile
+  # entry `npm ci` installs must carry the SAME integrity this update is about
+  # to pin. Combined with the version pre-flight above, a successful --update
+  # therefore leaves every Gate 0 input coherent by construction.
+  LOCK_INTEGRITY="$(node -p "require('./package-lock.json').packages?.['node_modules/$PKG']?.integrity ?? ''")" || exit 2
+  if [[ "$LOCK_INTEGRITY" != "$REGISTRY_INTEGRITY" ]]; then
+    echo "[check-sdk-freshness] FAIL package-lock.json integrity for $PKG@$VERSION != registry dist.integrity — refusing to update" >&2
+    echo "  lockfile = ${LOCK_INTEGRITY:-<missing>}" >&2
+    echo "  registry = $REGISTRY_INTEGRITY" >&2
+    echo "  fix: npm install --save-dev --save-exact '$PKG@$VERSION' (refreshes the lockfile entry), then re-run --update" >&2
+    exit 1
+  fi
+
+  # Stage-then-swap: build the ENTIRE new mirror + INDEX + pin in a staging
+  # area first, guarding every write, so an I/O failure (full disk, perms)
+  # exits non-zero without having touched the committed artifacts. Only the
+  # final swap mutates the repo — and the swap itself is crash-safe: the old
+  # mirror is kept as a rollback target until the new mirror AND pin are both
+  # in place, so every failure branch restores the fully-OLD state (or says
+  # exactly where the surviving copy is and how to put it back).
+  STAGE_DIR="$TMP_DIR/stage"
+  STAGE_PIN="$TMP_DIR/sdk-integrity.staged"
+  mkdir -p "$STAGE_DIR" || { echo "[check-sdk-freshness] ERROR could not create staging dir" >&2; exit 2; }
+  for f in "${TARBALL_DTS[@]}"; do
+    cp "$DIST_DIR/$f" "$STAGE_DIR/$f" || { echo "[check-sdk-freshness] ERROR staging copy failed for $f" >&2; exit 2; }
+  done
+
+  SURFACE_LINE="$(surface_line "$DIST_DIR")" || {
+    echo "[check-sdk-freshness] ERROR could not derive surface counts from $DIST_DIR" >&2
+    exit 2
+  }
+
+  {
+    printf '# Bundled SDK type mirror — %s@%s\n\n' "$PKG" "$VERSION"
+    printf 'GENERATED by `scripts/check-sdk-freshness.sh --update` — DO NOT EDIT BY HAND.\n\n'
+    printf 'Byte-verbatim mirror of the published npm tarball'"'"'s `dist/*.d.ts` files\n'
+    printf '(`.d.ts.map` files dropped). The published tarball is the sole canonical\n'
+    printf 'source; `scripts/check-sdk-freshness.sh` re-verifies this mirror against the\n'
+    printf 'registry on every CI run.\n\n'
+    printf -- '- package: `%s`\n' "$PKG"
+    printf -- '- version: `%s`\n' "$VERSION"
+    printf -- '- dist.integrity: `%s`\n' "$REGISTRY_INTEGRITY"
+    printf '%s\n' "$SURFACE_LINE"
+    printf -- '- regenerate: `scripts/check-sdk-freshness.sh --update` (after bumping the `%s` devDependency + lockfile)\n' "$PKG"
+    printf -- '- verify: `scripts/check-sdk-freshness.sh`\n\n'
+    printf '| file | sha256 |\n|---|---|\n'
+    for f in "${TARBALL_DTS[@]}"; do
+      SHA="$(sha256_of "$STAGE_DIR/$f")" || exit 2
+      printf '| %s | %s |\n' "$f" "$SHA"
+    done
+  } > "$STAGE_DIR/INDEX.md" || { echo "[check-sdk-freshness] ERROR writing staged INDEX.md failed" >&2; exit 2; }
+
+  {
+    printf 'package=%s\n' "$PKG"
+    printf 'version=%s\n' "$VERSION"
+    printf 'integrity=%s\n' "$REGISTRY_INTEGRITY"
+  } > "$STAGE_PIN" || { echo "[check-sdk-freshness] ERROR writing staged pin failed" >&2; exit 2; }
+
+  # Staged-content sanity before touching the repo: every expected file
+  # present, and every staged d.ts byte-equal to the tarball source.
+  for f in "${TARBALL_DTS[@]}"; do
+    cmp -s "$DIST_DIR/$f" "$STAGE_DIR/$f" || { echo "[check-sdk-freshness] ERROR staged $f not byte-equal to tarball (I/O corruption?)" >&2; exit 2; }
+  done
+  [[ -s "$STAGE_DIR/INDEX.md" && -s "$STAGE_PIN" ]] || { echo "[check-sdk-freshness] ERROR staged INDEX.md/pin empty" >&2; exit 2; }
+
+  # Crash-safe swap. Two properties the previous rm-then-mv sequence lacked:
+  #   1. The staged payload is first landed in a SIBLING dir on the mirror's
+  #      own filesystem ($TMPDIR is often a different device, where mv is a
+  #      non-atomic copy+delete that can die halfway), so every live-path
+  #      flip below is an atomic same-filesystem rename(2).
+  #   2. The old mirror is set aside as a rollback target — never deleted —
+  #      until the new mirror AND pin are both installed. Every failure
+  #      branch restores the fully-OLD mirror + pin, so a failed --update
+  #      never strands the repo without a mirror or with a mixed
+  #      mirror/pin pairing; if a restore itself fails, the message says
+  #      exactly where the surviving copy is and how to put it back.
+  # And one r12 addition: SIGINT/SIGTERM interruption is transactional too —
+  # the EXIT trap below is state-aware (restores the set-aside mirror when
+  # the swap did not commit) and the rename window itself masks INT/TERM.
+  NEW_DIR="$MIRROR_DIR.new.$$"
+  NEW_PIN="$PIN_FILE.new.$$"
+  BAK_DIR="$MIRROR_DIR.bak.$$"
+
+  # Transaction-aware cleanup — replaces the stage-only EXIT trap for the
+  # rest of --update. SWAP_STATE tracks the swap so that ANY exit — command
+  # failure or signal-driven (the INT/TERM traps above route through exit) —
+  # leaves a coherent mirror/pin pairing instead of an orphaned backup:
+  #   - not committed + $BAK_DIR exists: whatever occupies the live path is
+  #     the NEW mirror (or nothing) — clear it and restore $BAK_DIR. The
+  #     committed pin is never displaced before the commit point (the pin
+  #     rename IS the commit), so this restores the fully-OLD pairing.
+  #   - committed: remove the now-redundant backup.
+  #   - then clean the staged paths. $BAK_DIR is still NEVER deleted while it
+  #     is the last surviving copy of the old mirror: the restore
+  #     short-circuits before `mv` if clearing the live path fails, and the
+  #     failure message says where the copy is + the one-line recovery.
+  # Idempotent + re-entrant-safe: further INT/TERM are ignored on entry and
+  # every step re-checks the filesystem, so running after an inline failure
+  # branch below has already rolled back is harmless.
+  SWAP_STATE="none" # none -> set_aside -> committed
+  # shellcheck disable=SC2329 # invoked indirectly, via the EXIT trap below
+  cleanup_update() {
+    trap '' INT TERM
+    if [[ "$SWAP_STATE" == "committed" ]]; then
+      if [[ -e "$BAK_DIR" ]] && ! rm -rf "$BAK_DIR"; then
+        echo "[check-sdk-freshness] WARN update SUCCEEDED but the old-mirror backup could not be removed — delete it by hand: rm -rf '$BAK_DIR'" >&2
+      fi
+    elif [[ -e "$BAK_DIR" ]]; then
+      echo "[check-sdk-freshness] rolling back interrupted mirror swap — restoring the old mirror + pin" >&2
+      if ! rm -rf "$MIRROR_DIR" || ! mv "$BAK_DIR" "$MIRROR_DIR"; then
+        echo "[check-sdk-freshness] ERROR rollback failed — old mirror preserved at $BAK_DIR; restore by hand: rm -rf '$MIRROR_DIR' && mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+      fi
+    fi
+    rm -rf "$TMP_DIR" "$NEW_DIR" "$NEW_PIN"
+  }
+  trap 'cleanup_update' EXIT
+
+  mkdir -p "$(dirname "$MIRROR_DIR")" || exit 2
+  mkdir -p "$NEW_DIR" || { echo "[check-sdk-freshness] ERROR could not create install dir $NEW_DIR" >&2; exit 2; }
+  for f in "${TARBALL_DTS[@]}"; do
+    cp "$STAGE_DIR/$f" "$NEW_DIR/$f" || { echo "[check-sdk-freshness] ERROR install copy failed for $f (committed mirror untouched)" >&2; exit 2; }
+    cmp -s "$DIST_DIR/$f" "$NEW_DIR/$f" || { echo "[check-sdk-freshness] ERROR installed $f not byte-equal to tarball (I/O corruption?; committed mirror untouched)" >&2; exit 2; }
+  done
+  cp "$STAGE_DIR/INDEX.md" "$NEW_DIR/INDEX.md" || { echo "[check-sdk-freshness] ERROR install copy failed for INDEX.md (committed mirror untouched)" >&2; exit 2; }
+  cp "$STAGE_PIN" "$NEW_PIN" || { echo "[check-sdk-freshness] ERROR install copy failed for pin (committed mirror untouched)" >&2; exit 2; }
+  [[ -s "$NEW_DIR/INDEX.md" && -s "$NEW_PIN" ]] || { echo "[check-sdk-freshness] ERROR installed INDEX.md/pin empty (committed mirror untouched)" >&2; exit 2; }
+
+  # Critical section: between the set-aside rename and the pin commit, no
+  # shell variable can be flipped atomically WITH a rename(2) — no SWAP_STATE
+  # value could describe the instant in between. Instead of racing, ignore
+  # INT/TERM across this handful of same-filesystem renames (verified on
+  # bash 3.2: an ignored signal is discarded outright, so the window cannot
+  # be torn; SIGKILL/power loss remains covered by the manual-recovery
+  # messages). COMMAND failures still take the rollback branches below, and
+  # cleanup_update re-verifies their outcome on exit.
+  trap '' INT TERM
+  if [[ -e "$MIRROR_DIR" ]]; then
+    SWAP_STATE="set_aside"
+    mv "$MIRROR_DIR" "$BAK_DIR" || { echo "[check-sdk-freshness] ERROR could not set old mirror aside (committed mirror untouched)" >&2; exit 2; }
+  fi
+  if ! mv "$NEW_DIR" "$MIRROR_DIR"; then
+    echo "[check-sdk-freshness] ERROR mirror swap failed — restoring the old mirror" >&2
+    if [[ -e "$BAK_DIR" ]] && ! mv "$BAK_DIR" "$MIRROR_DIR"; then
+      echo "[check-sdk-freshness] ERROR rollback failed too — old mirror preserved at $BAK_DIR; restore by hand: mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+    fi
+    exit 2
+  fi
+  if ! mv "$NEW_PIN" "$PIN_FILE"; then
+    echo "[check-sdk-freshness] ERROR pin swap failed — rolling back to the old mirror so $PIN_FILE and the mirror stay coherent" >&2
+    if ! rm -rf "$MIRROR_DIR"; then
+      echo "[check-sdk-freshness] ERROR rollback failed too — the NEW mirror is live but $PIN_FILE is the OLD pin; old mirror preserved at $BAK_DIR; restore by hand: rm -rf '$MIRROR_DIR' && mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+      exit 2
+    fi
+    if [[ -e "$BAK_DIR" ]] && ! mv "$BAK_DIR" "$MIRROR_DIR"; then
+      echo "[check-sdk-freshness] ERROR rollback failed too — repo has NO mirror; old mirror preserved at $BAK_DIR; restore by hand: mv '$BAK_DIR' '$MIRROR_DIR'" >&2
+    fi
+    exit 2
+  fi
+  # Commit point reached: mirror and pin are both NEW. The transaction-aware
+  # EXIT trap now removes the backup (or WARNs with the one-line recovery).
+  SWAP_STATE="committed"
+
+  echo "[check-sdk-freshness] UPDATED $MIRROR_DIR (${#TARBALL_DTS[@]} d.ts files), $INDEX_FILE, $PIN_FILE for $PKG@$VERSION"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Check mode.
+# ---------------------------------------------------------------------------
+RC=0
+
+# Gate 1: registry integrity vs committed pin.
+if [[ "$REGISTRY_INTEGRITY" != "$PINNED_INTEGRITY" ]]; then
+  echo "[check-sdk-freshness] FAIL registry dist.integrity drift for $PKG@$VERSION" >&2
+  echo "  pinned   = $PINNED_INTEGRITY" >&2
+  echo "  registry = $REGISTRY_INTEGRITY" >&2
+  RC=1
+fi
+
+# Gate 2: actual tarball bytes vs committed pin.
+if [[ "$TARBALL_INTEGRITY" != "$PINNED_INTEGRITY" ]]; then
+  echo "[check-sdk-freshness] FAIL downloaded tarball sha512 != pinned integrity" >&2
+  echo "  pinned  = $PINNED_INTEGRITY" >&2
+  echo "  tarball = $TARBALL_INTEGRITY" >&2
+  RC=1
+fi
+
+# Gate 3+4: mirror file set + byte-equality vs tarball dist/.
+if [[ ! -d "$MIRROR_DIR" ]]; then
+  echo "[check-sdk-freshness] FAIL mirror directory missing: $MIRROR_DIR" >&2
+  exit 1
+fi
+
+MIRROR_DTS=()
+while IFS= read -r f; do MIRROR_DTS+=("$(basename "$f")"); done \
+  < <(find "$MIRROR_DIR" -maxdepth 1 -name '*.d.ts' | sort)
+
+if [[ "${TARBALL_DTS[*]}" != "${MIRROR_DTS[*]:-}" ]]; then
+  echo "[check-sdk-freshness] FAIL mirror file set differs from tarball dist/*.d.ts" >&2
+  echo "  tarball: ${TARBALL_DTS[*]}" >&2
+  echo "  mirror : ${MIRROR_DTS[*]:-<none>}" >&2
+  RC=1
+fi
+
+for f in "${TARBALL_DTS[@]}"; do
+  [[ -f "$MIRROR_DIR/$f" ]] || continue # already reported by the set diff
+  if ! cmp -s "$DIST_DIR/$f" "$MIRROR_DIR/$f"; then
+    echo "[check-sdk-freshness] FAIL mirror file differs from tarball: $MIRROR_DIR/$f" >&2
+    RC=1
+  fi
+done
+
+# Gate 5: INDEX.md presence + recorded version/integrity/per-file sha256.
+if [[ ! -f "$INDEX_FILE" ]]; then
+  echo "[check-sdk-freshness] FAIL INDEX.md missing: $INDEX_FILE" >&2
+  RC=1
+else
+  grep -qF -- "- version: \`$VERSION\`" "$INDEX_FILE" || {
+    echo "[check-sdk-freshness] FAIL INDEX.md does not record version $VERSION" >&2; RC=1; }
+  grep -qF -- "- dist.integrity: \`$PINNED_INTEGRITY\`" "$INDEX_FILE" || {
+    echo "[check-sdk-freshness] FAIL INDEX.md does not record the pinned dist.integrity" >&2; RC=1; }
+  for f in "${MIRROR_DTS[@]:-}"; do
+    [[ -n "$f" ]] || continue
+    ACTUAL_SHA="$(sha256_of "$MIRROR_DIR/$f")"
+    grep -qF -- "| $f | $ACTUAL_SHA |" "$INDEX_FILE" || {
+      echo "[check-sdk-freshness] FAIL INDEX.md sha256 row stale for $f (recomputed $ACTUAL_SHA)" >&2; RC=1; }
+  done
+
+  # Gate 5b: the INDEX.md table's file rows must match the mirror's *.d.ts set
+  # ONE-TO-ONE. The per-file grep above only proves a correct row EXISTS for
+  # each current mirror file — an obsolete, duplicate, or hand-added extra row
+  # would survive it, leaving a supposedly generated integrity index describing
+  # files that are not in the mirrored tarball. Parse every data row (skip the
+  # `| file | sha256 |` header and `|---|` separator) and require multiset
+  # equality: extra row, missing row, or duplicate row all FAIL.
+  INDEX_ROW_FILES="$(awk -F'|' '/^\|/ { f=$2; gsub(/^[ \t]+|[ \t]+$/, "", f); if (f != "file" && f !~ /^-+$/) print f }' "$INDEX_FILE" | sort)"
+  MIRROR_SET="$(printf '%s\n' "${MIRROR_DTS[@]:-}")"
+  if [[ "$INDEX_ROW_FILES" != "$MIRROR_SET" ]]; then
+    echo "[check-sdk-freshness] FAIL INDEX.md file rows are not one-to-one with the mirror's *.d.ts set (extra/missing/duplicate row)" >&2
+    echo "  index rows: $(printf '%s' "$INDEX_ROW_FILES" | tr '\n' ' ')" >&2
+    echo "  mirror    : ${MIRROR_DTS[*]:-<none>}" >&2
+    RC=1
+  fi
+
+  # Gate 5c: the `- surface (...)` line must match counts RE-DERIVED from the
+  # downloaded tarball declarations (API namespaces, core-plugin namespaces,
+  # metadata scalars, canonical scopes, legacy aliases, dynamic scope families,
+  # line total — all via the shared surface_line helper, none hardcoded). A
+  # hand edit, or an INDEX.md generated by an older --update with stale
+  # hardcoded counts, fails here instead of staying green.
+  EXPECTED_SURFACE="$(surface_line "$DIST_DIR")" || {
+    echo "[check-sdk-freshness] ERROR could not derive surface counts from $DIST_DIR" >&2
+    exit 2
+  }
+  grep -qF -- "$EXPECTED_SURFACE" "$INDEX_FILE" || {
+    echo "[check-sdk-freshness] FAIL INDEX.md surface line does not match counts re-derived from the tarball declarations" >&2
+    echo "  expected: $EXPECTED_SURFACE" >&2
+    RC=1
+  }
+fi
+
+if [[ "$RC" -eq 0 ]]; then
+  echo "[check-sdk-freshness] OK mirror is fresh: $PKG@$VERSION (${#MIRROR_DTS[@]} d.ts files byte-equal to the published tarball; integrity $PINNED_INTEGRITY)"
+fi
+exit "$RC"

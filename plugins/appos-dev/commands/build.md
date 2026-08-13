@@ -82,6 +82,11 @@ grep -c "globalThis" "{plugin-root}/dist/main.js"
 Expect at least 2. If 0, the bundler tree-shook them away — check that `src/main.ts` ends with:
 
 ```ts
+import type { PluginContext } from '@appos.space/plugin-types';
+
+async function activate(ctx: PluginContext): Promise<void> { /* ... your real activate ... */ }
+async function deactivate(): Promise<void> { /* ... your real deactivate ... */ }
+
 (globalThis as unknown as { activate: typeof activate }).activate = activate;
 (globalThis as unknown as { deactivate: typeof deactivate }).deactivate = deactivate;
 ```
