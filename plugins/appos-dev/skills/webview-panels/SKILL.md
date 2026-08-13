@@ -168,7 +168,7 @@ With this wiring a misspelled bridge member fails typecheck instead of silently 
 
 Wrap the global in a thin `shared/bridge.js` module so panel scripts don't depend on the raw global and can be tested in isolation. Pattern from the ytdlp plugin (whose shipped bridge is JSDoc-annotated the same way):
 
-```js
+```js webview
 // webview/shared/bridge.js
 const PROTOCOL_VERSION = 1;
 

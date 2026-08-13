@@ -16,10 +16,14 @@
  *      (reference/plugin-api/*.d.ts) are EXEMPT from text scans — they are
  *      byte-verbatim published artifacts validated by
  *      scripts/check-sdk-freshness.sh; only the mirror's INDEX.md is scanned.
- *  (b) reference/migration-2.x-to-3.0.md — fence type-check ONLY. This file
- *      is the single sanctioned home for pre-3.0 identifiers, so it is
- *      denylist- and count-string-EXEMPT; its legacy "before" fences carry
- *      the `no-verify` opt-out tag so only the "after" fences compile.
+ *  (b) reference/migration-2.x-to-3.0.md — fence type-check + count-string
+ *      check (NO denylist). This file is the single sanctioned home for
+ *      pre-3.0 identifiers, so it is denylist-EXEMPT; its legacy "before"
+ *      fences carry the `no-verify` opt-out tag so only the "after" fences
+ *      compile. Count strings ARE checked (the guide's "What did NOT
+ *      change" section asserts live surface, e.g. the ViewDescriptor union
+ *      cardinality); a legacy before-count in prose takes the per-line
+ *      `<!-- count-ok -->` exemption.
  *  (c) plugins/appos-dev/compiled/** — EXCLUDED entirely. The compiled
  *      factory context's concatenated d.ts fence is deliberately not valid
  *      TypeScript, and the artifacts are generated from already-scanned
@@ -117,9 +121,14 @@
  *    exactly the fences that teach the JSC timer guard.
  *  - WebView-side JS fences may additionally opt in with ```js webview:
  *    they compile as strict-checkJs `.js` (allowJs + checkJs + lib.dom, no
- *    SDK preamble — `declare` is illegal in .js) against a synthesized copy
- *    of the canonical webview/twopanez.d.ts ambient, mirroring the
- *    tsconfig.webview.json program the webview-panels skill prescribes
+ *    SDK preamble — `declare` is illegal in .js) against the CANONICAL
+ *    webview/twopanez.d.ts ambient EXTRACTED at verify time from
+ *    extension-api.md § "WebView-side bridge" (one source of truth — the
+ *    webview-panels SKILL.md duplicate is pinned byte-identical, so a
+ *    member rename in the taught declaration re-checks every js-webview
+ *    fence instead of compiling against a stale hardcoded copy),
+ *    mirroring the tsconfig.webview.json program the webview-panels skill
+ *    prescribes
  *    (include: webview/**, strict, checkJs). This exists so canonical
  *    panel-script examples (patterns.md §21 app.js) cannot regress into
  *    code that fails the very `npm run typecheck` wiring the docs mandate.
@@ -167,7 +176,7 @@
  *     identifiers (PluginCacheAPI, HostEventsAPI, *Namespace spellings,
  *     ambient `declare function activate`, 2.4.0-fn50, com.twopanez/plugins,
  *     "22 namespaces" / "34 permissions", triple-slash types reference, ...).
- *  5. count-string consistency — numeric surface claims in tier (a)
+ *  5. count-string consistency — numeric surface claims in tiers (a)+(b)
  *     ("N namespaces", "N permission scopes", "N exported types",
  *     "N ViewDescriptor types" / "N view types", plus the hyphenated
  *     singular forms "N-scope" / "N-namespace", ...) must match the truth
@@ -383,12 +392,48 @@ function deriveCounts(dtsDir) {
   const perms = fs.readFileSync(path.join(dtsDir, "permissions.d.ts"), "utf8");
   const canon = perms.match(/export type CanonicalPermissionScope = ([^;]+);/);
   if (!canon) throw new Error(`CanonicalPermissionScope not found in ${dtsDir}/permissions.d.ts`);
-  // Fixed scopes are double-quoted literals; the dynamic `oauth.${string}`
-  // family is a backtick template literal — counted separately, never choked on.
-  const fixedScopes = [...canon[1].matchAll(/"([^"]+)"/g)].length;
-  const templateFamilies = [...canon[1].matchAll(/`[^`]+`/g)].length;
+  // Permission-union parsing (r14): count by SHAPE-VALIDATING every
+  // `|`-separated member instead of grepping one quote style. Both TS
+  // string-literal quote styles are semantically identical, and a published
+  // SDK reformat from double to single quotes previously made these matchers
+  // silently derive canonicalScopes: 0 / legacyAliases: 0 — `--update` would
+  // then regenerate a wrong INDEX surface line and the gate would report
+  // misleading count drift instead of accepting the refresh. Fail CLOSED on
+  // any member that is not a quoted literal (or, where allowed, a backtick
+  // template family like `oauth.${string}`): a partial parse miscounts, and
+  // a silent miscount is exactly the drift this gate exists to prevent. The
+  // throw matches the ViewDescriptor-union precedent below (non-zero exit in
+  // both the full gate and `--counts` mode).
+  const parseLiteralUnion = (unionText, what, allowTemplates) => {
+    const members = unionText.split("|").map((s) => s.trim()).filter((s) => s !== "");
+    if (members.length === 0) {
+      throw new Error(
+        `empty ${what} union in ${dtsDir}/permissions.d.ts — the declaration matched but no members parsed; ` +
+        "extend parseLiteralUnion in scripts/verify-knowledge.mjs",
+      );
+    }
+    let quoted = 0;
+    let template = 0;
+    for (const m of members) {
+      if (/^"[^"]*"$/.test(m) || /^'[^']*'$/.test(m)) quoted += 1;
+      else if (allowTemplates && /^`[^`]*`$/.test(m)) template += 1;
+      else {
+        throw new Error(
+          `unparseable ${what} union member \`${m}\` in ${dtsDir}/permissions.d.ts — not a quoted string ` +
+          `literal${allowTemplates ? " or backtick template family" : ""}; ` +
+          "extend parseLiteralUnion in scripts/verify-knowledge.mjs",
+        );
+      }
+    }
+    return { quoted, template };
+  };
+  const canonCounts = parseLiteralUnion(canon[1], "CanonicalPermissionScope", true);
+  const fixedScopes = canonCounts.quoted;
+  const templateFamilies = canonCounts.template;
   const legacy = perms.match(/export type LegacyPermissionScope = ([^;]+);/);
-  const legacyAliases = legacy ? [...legacy[1].matchAll(/"([^"]+)"/g)].length : 0;
+  // Legacy aliases are fixed strings by definition — a template family there
+  // is new surface shape and must throw, not silently skew the alias count.
+  const legacyAliases = legacy ? parseLiteralUnion(legacy[1], "LegacyPermissionScope", false).quoted : 0;
 
   // ViewDescriptor union cardinality (r13): teaching claims carry the union's
   // member count as a numeral ("17 ViewDescriptor types", "17 view types",
@@ -1118,33 +1163,62 @@ declare var URL: URLConstructor | undefined;
 `);
 
 /**
- * WebView-side ambient bridge declaration for `js webview` fences — a
- * synthesized copy of the canonical webview/twopanez.d.ts every WebView
- * plugin ships (authoritative teaching copy: reference/extension-api.md
- * § "WebView-side bridge (`window.twopanez`)"; webview-panels/SKILL.md
- * carries the same text as a compiled ts fence). The prescribed
- * tsconfig.webview.json includes webview/**\/* so panel .js and the d.ts
- * share one program — this extra root mirrors that program shape for
- * checkJs fences. It is deliberately NOT given to `ts webview` fences:
- * those self-declare their ambients (the SKILL.md fence IS this
- * declaration, and injecting a second global augmentation would collide).
+ * WebView-side ambient bridge declaration for `js webview` fences —
+ * EXTRACTED AT VERIFY TIME from the canonical teaching fence in
+ * reference/extension-api.md § "WebView-side bridge (`window.twopanez`)"
+ * (the authoritative copy per webview-panels/SKILL.md, which tells readers
+ * to copy from there). ONE source of truth: this file previously carried an
+ * independent hardcoded copy, so a member rename in the taught declaration
+ * would have left `js webview` fences compiling green against a stale
+ * surface while the same code failed the `tsc -p tsconfig.webview.json`
+ * users actually run. Extraction fails CLOSED (exit 2) unless exactly one
+ * ts fence declaring `interface TwopanezBridge` exists in the canonical
+ * doc; the SKILL.md duplicate is pinned to it by byte equality (a check-3
+ * finding on drift). The prescribed tsconfig.webview.json includes
+ * webview/**\/* so panel .js and the d.ts share one program — this extra
+ * root mirrors that program shape for checkJs fences. It is deliberately
+ * NOT given to `ts webview` fences: those self-declare their ambients (the
+ * canonical fence IS this declaration, and injecting a second global
+ * augmentation would collide).
  */
+const BRIDGE_CANONICAL_MD = "plugins/appos-dev/skills/appos-plugin-dev/reference/extension-api.md";
+const BRIDGE_DUPLICATE_MD = "plugins/appos-dev/skills/webview-panels/SKILL.md";
+function extractBridgeFences(mdRelPath) {
+  const text = fs.readFileSync(path.join(REPO_ROOT, mdRelPath), "utf8");
+  return extractFences(text).filter(
+    (f) => (f.lang === "ts" || f.lang === "typescript") && /\binterface\s+TwopanezBridge\b/.test(f.code),
+  );
+}
+const canonicalBridgeFences = extractBridgeFences(BRIDGE_CANONICAL_MD);
+if (canonicalBridgeFences.length !== 1) {
+  console.error(
+    `[verify-knowledge] ERROR expected exactly 1 ts fence declaring \`interface TwopanezBridge\` in ` +
+    `${BRIDGE_CANONICAL_MD} (found ${canonicalBridgeFences.length}) — the js-webview compile lane binds to that ` +
+    "canonical taught declaration; restore it (or update extractBridgeFences in scripts/verify-knowledge.mjs)",
+  );
+  process.exit(2);
+}
 const TWOPANEZ_DTS = path.join(fenceTmpDir, "__webview-twopanez.d.ts");
-fs.writeFileSync(TWOPANEZ_DTS, `// Synthesized by verify-knowledge.mjs — canonical webview/twopanez.d.ts
-// (mirror of reference/extension-api.md § "WebView-side bridge").
-interface TwopanezBridge {
-    send(message: unknown): void;
-    request(message: unknown): Promise<unknown>;
-    onMessage(handler: (message: unknown) => void): void;
-    readonly instanceId: string;
-    readonly windowId: string;
-    readonly paneId: 'left' | 'right';
+fs.writeFileSync(
+  TWOPANEZ_DTS,
+  `// Extracted by verify-knowledge.mjs from ${BRIDGE_CANONICAL_MD}\n// § "WebView-side bridge (window.twopanez)" — the canonical taught copy.\n` +
+  canonicalBridgeFences[0].code + "\n",
+);
+// The webview-panels SKILL.md carries a reader-facing duplicate of the same
+// declaration (its prose names extension-api.md as the authoritative copy).
+// Pin it byte-identical so the two taught copies cannot drift apart silently.
+{
+  const dup = extractBridgeFences(BRIDGE_DUPLICATE_MD);
+  if (dup.length !== 1) {
+    report(BRIDGE_DUPLICATE_MD, null,
+      `expected exactly 1 ts fence declaring \`interface TwopanezBridge\` (found ${dup.length}) — ` +
+      `the WebView bridge declaration must mirror the canonical copy in ${BRIDGE_CANONICAL_MD}`);
+  } else if (dup[0].code !== canonicalBridgeFences[0].code) {
+    report(BRIDGE_DUPLICATE_MD, dup[0].startLine,
+      `WebView bridge declaration fence differs from the canonical copy in ${BRIDGE_CANONICAL_MD} — ` +
+      "the two taught twopanez.d.ts copies must stay byte-identical (js-webview fences compile against the canonical one)");
+  }
 }
-declare global {
-    interface Window { readonly twopanez: TwopanezBridge; }
-}
-export {};
-`);
 
 let fenceCount = 0;
 let optedOut = 0;
@@ -1166,7 +1240,7 @@ for (const mdFile of fenceFiles) {
     if (env === "webviewJs") webviewJsEnvCount++;
     // No preamble for js fences: `declare` is illegal in .js files (TS8006)
     // and WebView code never sees the SDK — window.twopanez comes from the
-    // synthesized ambient d.ts in the env's extraRoots.
+    // extracted canonical ambient d.ts in the env's extraRoots.
     const preamble = isWebviewJs ? [] : [PREAMBLE_IMPORT, ...(bindsCtx(fence.code) ? [] : [PREAMBLE_CTX])];
     const virtualPath = path.join(
       fenceTmpDir,
@@ -1200,7 +1274,7 @@ if (fenceUnits.length) {
     plugin: { options: { ...baseOptions, lib: ["lib.es2022.d.ts"] }, extraRoots: [JSC_GLOBALS_DTS] },
     webview: { options: { ...baseOptions, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"] }, extraRoots: [] },
     // ```js webview fences: strict checkJs over a .js virtual file + the
-    // synthesized canonical twopanez.d.ts — mirrors the taught
+    // extracted canonical twopanez.d.ts — mirrors the taught
     // tsconfig.webview.json program (allowJs/checkJs/strict, DOM lib,
     // webview/**/* include). allowJs/checkJs are not parse-affecting, so
     // the shared source-file cache stays safe across envs.
@@ -1279,11 +1353,13 @@ if (fenceUnits.length) {
 // Checks 4 + 5 — denylist + count strings (tier (a) only).
 // ───────────────────────────────────────────────────────────────────────────
 
-for (const file of teachingFiles) {
+function runTextChecks(file, { denylist }) {
   const lines = fs.readFileSync(path.join(REPO_ROOT, file), "utf8").split(/\r?\n/);
   lines.forEach((lineText, i) => {
-    for (const item of DENYLIST) {
-      if (item.re.test(lineText)) report(file, i + 1, `stale identifier: ${item.name}`);
+    if (denylist) {
+      for (const item of DENYLIST) {
+        if (item.re.test(lineText)) report(file, i + 1, `stale identifier: ${item.name}`);
+      }
     }
     if (lineText.includes("<!-- count-ok -->")) return;
     const claimed = new Set(); // avoid double-reporting the same match position
@@ -1301,6 +1377,20 @@ for (const file of teachingFiles) {
   });
 }
 
+for (const file of teachingFiles) runTextChecks(file, { denylist: true });
+
+// Scoped COUNT-ONLY pass for the migration guide (tier (b)). The guide's
+// exclusion from teachingFiles exists for the stale-identifier DENYLIST —
+// it is the single sanctioned home for pre-3.0 identifiers — but that
+// exemption was over-broad for count strings: the guide's "What did NOT
+// change" section asserts LIVE surface ("The 17-type `ViewDescriptor`
+// union"), which would stay green-and-stale when the SDK grows the union.
+// Run check 5 alone here (denylist stays OFF, preserving the sanctioned-home
+// design). A legacy before-count cited in migration prose (none today) is
+// exactly the "legitimately different count" case the existing per-line
+// `<!-- count-ok -->` exemption covers.
+if (migrationExists) runTextChecks(migrationRel, { denylist: false });
+
 // ───────────────────────────────────────────────────────────────────────────
 // Summary + exit.
 // ───────────────────────────────────────────────────────────────────────────
@@ -1310,7 +1400,7 @@ console.log(
   `[verify-knowledge] scanned ${teachingFiles.length} teaching files, ` +
   `${fenceCount} fences compiled (${fenceCount - webviewEnvCount - webviewJsEnvCount} plugin-runtime env, ` +
   `${webviewEnvCount} webview ts env, ${webviewJsEnvCount} webview checkJs env, ${optedOut} opted out via no-verify), ` +
-  `migration guide ${migrationExists ? "fence-checked" : "not present yet (fn-165.2)"}, compiled/** excluded`,
+  `migration guide ${migrationExists ? "fence- and count-checked (denylist-exempt)" : "not present yet (fn-165.2)"}, compiled/** excluded`,
 );
 
 if (findings.length) {
