@@ -82,7 +82,7 @@ When the user describes what they want to build, map their requirements to speci
 - `commands` — Register commands for the command palette and shortcuts
 
 **Feedback**
-- `feedback` — Toasts, logs, confirmations, prompts
+- `feedback` — Toasts (`toast`), HUD panels (`hud`/`updateHud`/`dismissHud`), NSAlert confirmation dialogs (`alert` — the ONLY confirm-gated method, requires `feedback.confirm`), system notifications (`systemNotification`), and adaptive routing (`notify`). There is NO `.log`, `.confirm`, or `.prompt` — do not design against them
 
 **Inter-plugin (legacy tier)**
 - `extensionPoints` — Declare/contribute extension points for other plugins

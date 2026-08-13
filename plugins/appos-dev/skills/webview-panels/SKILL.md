@@ -406,7 +406,7 @@ bridge.onShellChunk((chunk) => {
 - Hard 120-second timeout. Use resume loops with `--continue` / `--continue-at` flags for jobs that exceed this.
 - `cwd` must be an absolute, tilde-expanded path. T1 sandbox rejects relative paths and `~`.
 - Always pass `--ignore-config` (or the tool's equivalent) so ambient user config can't inject flags.
-- Chunks fan out to every instance of the panel — if the user has the panel open in two panes, both see the same chunks. Filter with `envelope.instanceId` if you need isolation.
+- Chunks fan out to every instance of the panel — if the user has the panel open in two panes, both see the same chunks, and this CANNOT be filtered: the chunk is `{ stream, data, bytesTotal }` and carries no instance identifier (`envelope.instanceId` exists only on WebView→plugin messages, not on outbound chunks). If you need per-instance isolation, don't use `pipeShellToWebPanel` — run the command with `ctx.shell.execute({ onData })` and forward chunks yourself via `ctx.ui.postToWebPanel(panelId, msg, { instanceId })`, targeting the `instanceId` captured from the initiating WebView message.
 - The child process is killed if the plugin deactivates — but there is NO mid-run cancellation API in SDK 3.0.0. `ShellAPI` exposes only `execute()`, and `ShellExecuteResult` carries no PID or process handle, so a "Cancel" button in your panel cannot kill the process. The command runs until it exits or hits the 120-second cap; keep jobs short/resumable so an abandoned run bounds itself.
 
 ## Multi-instance isolation
@@ -414,7 +414,7 @@ bridge.onShellChunk((chunk) => {
 A panel can have multiple live instances — one per open pane tab per window. This matters for:
 
 - **Correlation**: Responses broadcast via `postToWebPanel` reach every instance. Always tag responses with a per-request ID the initiator will recognize and others will ignore.
-- **Shell chunks**: All instances see the same `pipeShellToWebPanel` output. If only one instance initiated the command, the others should ignore it. Filter on `instanceId` from the bridge context.
+- **Shell chunks**: All instances see the same `pipeShellToWebPanel` output, and the chunks carry no instance identifier — there is nothing for a webview to filter on. If only one instance should see the output, don't use `pipeShellToWebPanel`: run the command with `ctx.shell.execute({ onData })` and forward chunks only to the initiating instance via `ctx.ui.postToWebPanel(panelId, msg, { instanceId })` (the initiator's `instanceId` comes from the WebView→plugin message that started the command).
 - **State**: Every instance independently holds DOM state. When a new instance opens, it should `send({ type: 'request-state' })` and the plugin should push a full state snapshot.
 
 ## Initial state handshake

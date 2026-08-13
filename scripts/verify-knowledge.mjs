@@ -268,9 +268,10 @@ const COUNT_PATTERNS = [
   // pattern checked the teaching claim in extension-api.md ("3 typed metadata
   // scalars") — an SDK adding a scalar would regenerate mirror + INDEX while
   // that prose stayed green-and-stale. `scalars` is OPTIONAL in the first
-  // pattern because the extension-api.md claim wraps mid-phrase ("… 3 typed
-  // metadata\nscalars:") and this scan is line-based — the pattern must match
-  // the line-final "3 typed metadata" form.
+  // pattern as a legacy of the line-based scan era (the extension-api.md
+  // claim wraps mid-phrase "… 3 typed metadata\nscalars:"); the r15
+  // logical-text scan in runTextChecks now matches the full wrapped phrase,
+  // and the optional group is kept so the line-final form stays covered too.
   { label: "typed metadata scalars", re: /(\d+)[\s-]+typed\s+metadata(?:\s+scalars?)?\b/gi, key: "metadataScalars" },
   { label: "metadata scalars", re: /(\d+)[\s-]+metadata\s+scalars?\b/gi, key: "metadataScalars" },
   // Remaining derived counts advertised with a numeral anywhere in tier (a)
@@ -384,10 +385,28 @@ function deriveCounts(dtsDir) {
     }
   }
 
-  const coreImport = core.match(/import type \{([^}]+)\} from "\.\/namespaces-core-plugins"/);
-  const corePluginNamespaces = coreImport
-    ? coreImport[1].split(",").map((s) => s.trim()).filter((n) => /API$/.test(n)).length
-    : 0;
+  // Core-plugin namespace import (r15): accept BOTH TS quote styles (the
+  // quote is captured and back-referenced so it must match itself), same
+  // class as the permission-union quote-style fix below — a published SDK
+  // reformat from double to single quotes previously made this matcher
+  // return null and silently record corePluginNamespaces: 0, so `--update`
+  // would regenerate a wrong INDEX surface line and later failures would
+  // present as misleading documentation drift. Fail CLOSED when core.d.ts
+  // references the module but the import cannot be classified: a silent zero
+  // is exactly the drift this gate exists to prevent. Zero WITHOUT any
+  // module reference stays legitimate (an SDK with no core-plugin
+  // namespaces module).
+  const coreImport = core.match(/import type \{([^}]+)\} from (["'])\.\/namespaces-core-plugins\2/);
+  let corePluginNamespaces = 0;
+  if (coreImport) {
+    corePluginNamespaces = coreImport[1].split(",").map((s) => s.trim()).filter((n) => /API$/.test(n)).length;
+  } else if (core.includes("namespaces-core-plugins")) {
+    throw new Error(
+      `unclassifiable core-plugin namespace import in ${dtsDir}/core.d.ts — the file references ` +
+      "namespaces-core-plugins but no `import type { ... } from \"./namespaces-core-plugins\"` " +
+      "(either quote style) matched; extend the core-import matcher in scripts/verify-knowledge.mjs",
+    );
+  }
 
   const perms = fs.readFileSync(path.join(dtsDir, "permissions.d.ts"), "utf8");
   const canon = perms.match(/export type CanonicalPermissionScope = ([^;]+);/);
@@ -1354,27 +1373,68 @@ if (fenceUnits.length) {
 // ───────────────────────────────────────────────────────────────────────────
 
 function runTextChecks(file, { denylist }) {
-  const lines = fs.readFileSync(path.join(REPO_ROOT, file), "utf8").split(/\r?\n/);
-  lines.forEach((lineText, i) => {
-    if (denylist) {
+  const raw = fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
+  const lines = raw.split(/\r?\n/);
+  if (denylist) {
+    lines.forEach((lineText, i) => {
       for (const item of DENYLIST) {
         if (item.re.test(lineText)) report(file, i + 1, `stale identifier: ${item.name}`);
       }
+    });
+  }
+  // Count claims are matched against the complete LOGICAL text, not per
+  // physical line (r15): folded YAML frontmatter and reflowed prose split a
+  // claim across lines ("all 17\n  types" in agents/viewdescriptor-builder.md
+  // reads as "all 17 types" everywhere it is consumed), and a per-line scan
+  // let that claim escape checking entirely. Newlines are replaced 1:1 by
+  // spaces so match offsets map back to the raw text unchanged; the existing
+  // `[\s-]+` / `\s+` separators in COUNT_PATTERNS absorb the extra spaces
+  // (CRLF becomes two). A match whose raw region crosses a PARAGRAPH break
+  // (blank line) is rejected — a human-readable claim never spans one, and
+  // without this guard the collapse manufactures false claims by joining
+  // unrelated adjacent blocks (measured on this corpus: "minHostVersion:
+  // 1.0.0" + blank + "API Namespaces:" in the plugin-architect output
+  // template joined into a phantom "0 API Namespaces"). Findings keep
+  // line-number attribution: the reported line is the FIRST line of the
+  // match region, and the per-line `<!-- count-ok -->` exemption applies
+  // when ANY line the match spans carries the marker (a superset of the old
+  // same-line behavior, since a single-line match spans exactly its own
+  // line).
+  const logical = raw.replace(/[\r\n]/g, " ");
+  const crossesParagraphBreak = (start, end) => /\n[ \t\r]*\n/.test(raw.slice(start, end));
+  const lineStarts = [0];
+  for (let idx = 0; idx < raw.length; idx += 1) if (raw[idx] === "\n") lineStarts.push(idx + 1);
+  const lineIndexAt = (offset) => {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
     }
-    if (lineText.includes("<!-- count-ok -->")) return;
-    const claimed = new Set(); // avoid double-reporting the same match position
-    for (const cp of COUNT_PATTERNS) {
-      cp.re.lastIndex = 0;
-      for (const m of lineText.matchAll(cp.re)) {
-        if (claimed.has(m.index)) continue;
-        claimed.add(m.index);
-        const n = Number(m[1]);
-        if (n !== truth[cp.key]) {
-          report(file, i + 1, `count drift: "${m[0].trim()}" but the mirror derives ${cp.label} = ${truth[cp.key]}`);
-        }
+    return lo;
+  };
+  const claimed = new Set(); // avoid double-reporting the same match position
+  for (const cp of COUNT_PATTERNS) {
+    cp.re.lastIndex = 0;
+    for (const m of logical.matchAll(cp.re)) {
+      if (claimed.has(m.index)) continue;
+      if (crossesParagraphBreak(m.index, m.index + m[0].length)) continue;
+      claimed.add(m.index);
+      const startLine = lineIndexAt(m.index);
+      const endLine = lineIndexAt(m.index + m[0].length - 1);
+      let exempt = false;
+      for (let ln = startLine; ln <= endLine; ln += 1) {
+        if (lines[ln] !== undefined && lines[ln].includes("<!-- count-ok -->")) { exempt = true; break; }
+      }
+      if (exempt) continue;
+      const n = Number(m[1]);
+      if (n !== truth[cp.key]) {
+        const shown = m[0].trim().replace(/\s+/g, " ");
+        report(file, startLine + 1, `count drift: "${shown}" but the mirror derives ${cp.label} = ${truth[cp.key]}`);
       }
     }
-  });
+  }
 }
 
 for (const file of teachingFiles) runTextChecks(file, { denylist: true });

@@ -40,10 +40,10 @@ Build native SwiftUI views for AppOS plugins using JSON ViewDescriptor trees. Ea
 | Type | Properties | Notes |
 |------|-----------|-------|
 | `button` | `title`, `action`, `tooltip`, `width` | With `width`: inline action button with hover. |
-| `listItem` | `title`, `subtitle`, `icon`, `iconColor`, `action`, `menuActions`, `children` | Primary row type. |
+| `listItem` | `title`, `subtitle`, `icon`, `iconColor`, `action`, `menuActions` | Primary row type. Trailing columns go in top-level `children`, NOT in `properties`. |
 | `textField` | `placeholder`, `text`, `action` | Editable text input. Action fires on submit. SDK 3.0.0 types name the initial contents `text`, but the 1.0.0 host reads `value` — include both (assertion-cast) to seed initial text on today's host. |
 | `progress` | `value` (0.0-1.0), `label`, `style` ("bar"/"circular") | Omit `value` for indeterminate. Default style: "bar". |
-| `section` | `title`, `icon`, `badge`, `isExpanded`, `id`, `children` | Collapsible group. |
+| `section` | `title`, `icon`, `badge`, `isExpanded`, `id` | Collapsible group. Content goes in top-level `children`. |
 
 ### Structural
 
@@ -51,6 +51,8 @@ Build native SwiftUI views for AppOS plugins using JSON ViewDescriptor trees. Ea
 |------|-----------|-------|
 | `divider` | — | Horizontal line separator. |
 | `spacer` | `minLength` | Flexible space between elements. |
+
+> **`children` is never a property.** On every descriptor that nests content (`listItem`, `section`, `vstack`, `hstack`, `scroll`, `list`, `grid`), `children` is a top-level field — a SIBLING of `properties` (e.g. `ListItemDescriptor` declares `children?: ViewDescriptor[]` alongside `properties`). Putting `children` inside `properties` fails excess-property checking on typed descriptors, and in loosely built JSON the host ignores it, silently dropping the nested views.
 
 ## Font values
 

@@ -196,7 +196,7 @@ const result = await ctx.ui.pipeShellToWebPanel('download', {
 - Hard 120-second timeout. For long jobs, use resume loops with `--continue`.
 - `cwd` must be absolute and tilde-expanded. T1 sandbox rejects relative paths.
 - Always pass `--ignore-config` (or equivalent) so ambient user config can't inject flags.
-- Chunks fan out to every instance. Filter with `envelope.instanceId` if you need isolation.
+- Chunks fan out to every instance and CANNOT be filtered per-instance: the chunk is `{ stream, data, bytesTotal }` with no instance identifier (`envelope.instanceId` exists only on WebView→plugin messages). For isolation, use `ctx.shell.execute({ onData })` and forward chunks yourself via `ctx.ui.postToWebPanel(panelId, msg, { instanceId })` targeting the initiating instance.
 
 ### 7. Throttle high-frequency broadcasts
 
