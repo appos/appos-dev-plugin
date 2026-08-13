@@ -53,8 +53,7 @@ SDK 3.0.1+ also ships ONE opt-in globals subpath —
 `@appos.space/plugin-types/globals` — typing the host-injected `URL`
 global (AppOS hosts 1.1.0+; always guard with `typeof URL === 'function'`
 — see `patterns.md` §24). It augments nothing unless a tsconfig references
-it; the scaffolded `src/jsc-globals.d.ts` declares the same surface
-locally instead.
+it; the scaffolded `src/jsc-globals.ts` declares the same surface locally.
 
 The surface splits into two waves:
 

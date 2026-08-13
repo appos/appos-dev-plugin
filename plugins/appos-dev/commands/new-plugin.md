@@ -94,7 +94,7 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
 
 </details>
 
-## 6. Write tsconfig.json + src/jsc-globals.d.ts
+## 6. Write tsconfig.json + src/jsc-globals.ts
 
 **MANDATORY**: `verbatimModuleSyntax: true` is required because `@appos.space/plugin-types` is declaration-only. Without this flag, TypeScript emits runtime `import` statements that try to resolve a non-existent module at runtime.
 
@@ -111,6 +111,7 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
+        "types": [],
         "lib": ["ES2022"]
     },
     "include": ["src/**/*.ts"],
@@ -118,61 +119,70 @@ If you are working on the SDK itself, point the three `@appos.space/*` entries a
 }
 ```
 
-Note `"lib": ["ES2022"]` — deliberately **no `DOM`**. Plugin-side code runs in JavaScriptCore: there is no `document`, no `window`, no browser `fetch` (use `ctx.network.fetch`), no guaranteed timers, and `URL` only on hosts that inject it (AppOS 1.1.0+ — and users can switch it off). Putting `DOM` in this lib would make all of those typecheck clean and then throw at runtime. The globals the runtime genuinely provides come from a scaffolded ambient file instead — write `src/jsc-globals.d.ts` (it is matched by `"include": ["src/**/*.ts"]`, so it is part of this program automatically):
+Note `"lib": ["ES2022"]` — deliberately **no `DOM`**. Plugin-side code runs in JavaScriptCore: there is no `document`, no `window`, no browser `fetch` (use `ctx.network.fetch`), no guaranteed timers, and `URL` only on hosts that inject it (AppOS 1.1.0+ — and users can switch it off). Putting `DOM` in this lib would make all of those typecheck clean and then throw at runtime. `"types": []` closes the same door from the `node_modules` side: without it, any `@types/*` package installed later (most commonly `@types/node`, which rides in with many dev tools) is auto-included and silently injects `process` plus Node's timer globals into this program — `process.env`-using code would then pass `npm run typecheck` and throw in JavaScriptCore. The globals the runtime genuinely provides come from a scaffolded `declare global` module instead — write `src/jsc-globals.ts` (it is matched by `"include": ["src/**/*.ts"]`, so it is part of this program automatically):
 
 ```ts
-// src/jsc-globals.d.ts — ambient globals of the AppOS JavaScriptCore plugin
-// runtime. JSC ships a native console; the host injects NO timers, so the
-// timer globals are typed `| undefined` — an unguarded setTimeout(...) is a
-// type error (TS2722) while a `typeof setTimeout === 'function'`-narrowed
-// call compiles. Do not add DOM globals here: document/window/browser fetch
-// do not exist in the plugin runtime (use ctx.network.fetch).
-declare const console: {
-    log(...args: unknown[]): void;
-    info(...args: unknown[]): void;
-    warn(...args: unknown[]): void;
-    error(...args: unknown[]): void;
-    debug(...args: unknown[]): void;
-    trace(...args: unknown[]): void;
-};
-declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
-declare const clearTimeout: ((id: number | undefined) => void) | undefined;
-declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
-declare const clearInterval: ((id: number | undefined) => void) | undefined;
-// URL — AppOS hosts 1.1.0+ inject a native Foundation-bridged URL global
-// (immutable v1 subset; NO searchParams — that getter THROWS at runtime,
-// parse url.search manually). Older hosts, the appos.jsc.urlGlobal.disabled
-// kill switch, and menu-bar contexts lack it, so it is typed `| undefined`:
-// an unguarded `new URL(...)` is a type error (TS18048) while a
-// `typeof URL === 'function'`-narrowed call compiles. Same surface as the
-// SDK 3.0.1+ opt-in `@appos.space/plugin-types/globals` subpath (`var`
-// matches its declaration) — if you pin SDK >=3.0.1 you may reference that
-// subpath from tsconfig `types` instead and DELETE this block (keeping both
-// would double-declare URL).
-interface URL {
-    readonly href: string;
-    readonly protocol: string;
-    readonly hostname: string;
-    readonly host: string;
-    readonly port: string;
-    readonly pathname: string;
-    readonly search: string;
-    readonly hash: string;
-    readonly origin: string;
-    readonly username: string;
-    readonly password: string;
-    toString(): string;
-    toJSON(): string;
+// src/jsc-globals.ts — ambient globals of the AppOS JavaScriptCore plugin
+// runtime, written as a `declare global` .ts MODULE (the same pattern as the
+// SDK's own globals source), NOT a .d.ts: `skipLibCheck: true` skips every
+// .d.ts in the program — project-owned files included — so a typo inside a
+// .d.ts version of this file would be silently suppressed and degrade
+// console / timers / URL to error-`any`. A .ts module is always fully
+// type-checked. JSC ships a native console; the host injects NO timers, so
+// the timer globals are typed `| undefined` — an unguarded setTimeout(...)
+// is a type error (TS2722) while a `typeof setTimeout === 'function'`-
+// narrowed call compiles. Do not add DOM globals here: document/window/
+// browser fetch do not exist in the plugin runtime (use ctx.network.fetch).
+export {};
+
+declare global {
+    var console: {
+        log(...args: unknown[]): void;
+        info(...args: unknown[]): void;
+        warn(...args: unknown[]): void;
+        error(...args: unknown[]): void;
+        debug(...args: unknown[]): void;
+        trace(...args: unknown[]): void;
+    };
+    var setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+    var clearTimeout: ((id: number | undefined) => void) | undefined;
+    var setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+    var clearInterval: ((id: number | undefined) => void) | undefined;
+    // URL — AppOS hosts 1.1.0+ inject a native Foundation-bridged URL global
+    // (immutable v1 subset; NO searchParams — that getter THROWS at runtime,
+    // parse url.search manually). Older hosts, the appos.jsc.urlGlobal.disabled
+    // kill switch, and menu-bar contexts lack it, so it is typed `| undefined`:
+    // an unguarded `new URL(...)` is a type error (TS18048) while a
+    // `typeof URL === 'function'`-narrowed call compiles. Same surface as the
+    // SDK 3.0.1+ opt-in `@appos.space/plugin-types/globals` subpath (`var`
+    // matches its declaration) — if you pin SDK >=3.0.1 you may switch the
+    // tsconfig `types` array from `[]` to ["@appos.space/plugin-types/globals"]
+    // instead and DELETE this URL block (keeping both would double-declare URL).
+    interface URL {
+        readonly href: string;
+        readonly protocol: string;
+        readonly hostname: string;
+        readonly host: string;
+        readonly port: string;
+        readonly pathname: string;
+        readonly search: string;
+        readonly hash: string;
+        readonly origin: string;
+        readonly username: string;
+        readonly password: string;
+        toString(): string;
+        toJSON(): string;
+    }
+    interface URLConstructor {
+        new (url: string | URL, base?: string | URL): URL;
+        canParse(url: string | URL, base?: string | URL): boolean;
+        readonly prototype: URL;
+    }
+    var URL: URLConstructor | undefined;
 }
-interface URLConstructor {
-    new (url: string | URL, base?: string | URL): URL;
-    canParse(url: string | URL, base?: string | URL): boolean;
-    readonly prototype: URL;
-}
-declare var URL: URLConstructor | undefined;
 ```
 
-With this pair, accidental browser-global use in `src/` fails `npm run typecheck` (`document` → TS2584, `window`/`fetch` → TS2304), an unguarded `setTimeout(...)` fails TS2722, an unguarded `new URL(...)` fails TS18048, and `typeof setTimeout === 'function'` / `typeof URL === 'function'`-guarded calls compile — matching what actually happens at runtime. `skipLibCheck: true` stays on here because this program pulls in the external SDK `.d.ts` from `node_modules`; the WebView config in step 10 sets it to `false` because its only declaration file is project-owned. This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — DOM belongs exclusively to their `tsconfig.webview.json`, which step 10 writes and chains into `npm run typecheck`.
+With this pair, accidental browser-global use in `src/` fails `npm run typecheck` (`document` → TS2584, `window`/`fetch` → TS2304), an unguarded `setTimeout(...)` fails TS2722, an unguarded `new URL(...)` fails TS18048, and `typeof setTimeout === 'function'` / `typeof URL === 'function'`-guarded calls compile — matching what actually happens at runtime. `skipLibCheck: true` stays on here because this program pulls in the external SDK `.d.ts` from `node_modules` — and it can never mute the declarations above, because `src/jsc-globals.ts` is a `.ts` module, which `skipLibCheck` does not skip; the WebView config in step 10 sets it to `false` because its only declaration file is project-owned. This config deliberately covers `src/**/*.ts` ONLY: nothing under `webview/` is part of this program. WebView sources are a separate compilation world — DOM belongs exclusively to their `tsconfig.webview.json`, which step 10 writes and chains into `npm run typecheck`.
 
 ## 7. Write build.mjs
 

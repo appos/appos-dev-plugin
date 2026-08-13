@@ -94,30 +94,32 @@ Search `src/main.ts` and any files it imports (`src/**/*.ts`) for API usage and 
 
 | Source pattern | Required permission |
 |---|---|
-| `ctx.ui.registerPanel`, `ctx.ui.registerActivityView`, `ctx.ui.registerFileRowAnnotation` | `ui.sidebar` |
+| `ctx.ui.registerPanel`, `.updatePanel`, `.showPanel`, `.registerActivityView`, `.registerActivityBarItem`, `.registerFileRowAnnotation`, `.registerSidebarPanel` (deprecated — migrate to `registerPanel`) | `ui.sidebar` |
+| `ctx.ui.registerToolbarItem` | `ui.sidebar` — NOT `ui.toolbar`; that scope exists in the enum, but the 1.0.0 host gates toolbar registration under `ui.sidebar` (fn-7 grouping), so `ui.toolbar` alone will NOT admit this call |
 | `ctx.ui.registerWebPanel`, `ctx.ui.postToWebPanel`, `ctx.ui.onWebPanelMessage`, `ctx.ui.onWebPanelRequest` | `ui.webPanel` (the `webview` alias is dead — never granted) |
 | `ctx.ui.pipeShellToWebPanel` | BOTH `ui.webPanel` AND `shell.execute` — it streams into a WebView panel *and* spawns a shell process; every piped command must also be listed in `shellCommands` (step 7) |
 | `ctx.ui.registerStatusBarItem` | `ui.statusBar` |
 | `ctx.ui.registerContextMenuItem` | `ui.contextMenu` |
 | `ctx.ui.showNotification` | `ui.notifications` |
 | `ctx.ui.showSheet` | `ui.sheets` |
-| `ctx.ui.registerQuickAction` | `ui.quickActions` |
 | `ctx.shortcuts.register` | `ui.shortcuts` |
 | `ctx.themes.registerTheme` | `ui.themes` |
-| `ctx.fileOps.listDirectory`, `.readFile`, `.getActiveDirectory` | `filesystem.read` |
-| `ctx.fileOps.createFile`, `.writeFile`, `.delete`, `.moveFile`, `.copyFile` | `filesystem.write` |
-| `ctx.fileOps.watchDirectory` | `filesystem.watch` |
+| `ctx.fileOps.listDirectory`, `.readFile`, `.readFileData`, `.getFileInfo`, `.getActiveDirectory`, `.getPaneDirectory`, `.getSelectedFiles` | `filesystem.read` |
+| `ctx.fileOps.createFile`, `.createDirectory`, `.writeFile`, `.delete`, `.rename`, `.copy`, `.move`, `.batch` | `filesystem.write` (the SDK 3.0.0 methods are `copy(sources, dest)` / `move(sources, dest)` — there are NO `.copyFile` / `.moveFile` spellings; `batch` takes copy/move/delete operations, all write-gated) |
+| `ctx.fileOps.watchDirectory`, `.watchDirectoryWithOptions` | `filesystem.watch` |
 | `ctx.shell.execute` | `shell.execute` (`ShellAPI` has ONLY `execute` in SDK 3.0.0 — any `ctx.shell.pipe*` spelling comes from stale docs and does not exist; flag such a call as an ERROR pointing to `ctx.ui.pipeShellToWebPanel`) |
 | `ctx.clipboard.read` | `clipboard.read` |
 | `ctx.clipboard.write` | `clipboard.write` |
-| `ctx.network.fetch` | `network.outbound` (legacy `network.fetch` is normalized to it; bare `network` is dead — never granted) |
-| `ctx.cache.get`, `.set`, `.delete` | `cache` |
-| `ctx.feedback.toast`, `.log` | `feedback` |
-| `ctx.feedback.confirm`, `.prompt` | `feedback.confirm` |
-| `ctx.workspaces.register`, `.apply`, `.list` | `workspaces` |
-| `ctx.menubar.register`, `.setBadge`, `.remove` | `menubar` |
+| `ctx.network.fetch`, `.download`, `.executeRequest` | `network.outbound` (legacy `network.fetch` is normalized to it; bare `network` is dead — never granted) |
+| `ctx.cache.get`, `.set`, `.remove`, `.clear`, `.has`, `.keys` | `cache` (the removal method is `remove` — `CacheAPI` has NO `.delete`) |
+| `ctx.feedback.toast`, `.hud`, `.updateHud`, `.dismissHud`, `.systemNotification`, `.notify` | `feedback` |
+| `ctx.feedback.alert` | `feedback.confirm` (`alert` is the ONLY confirm-gated method — `FeedbackAPI` has no `.confirm`, `.prompt`, or `.log`) |
+| `ctx.workspaces.register`, `.apply`, `.list`, `.getActive`, `.onChange` | `workspaces` |
+| `ctx.menubar.register`, `.update`, `.setBadge`, `.setContent`, `.remove` | `menubar` |
 | `ctx.smartFolders.registerFilterType` | `filesystem.read` (the `smartFolders` alias is dead — never granted) |
-| `ctx.storage.getSecure`, `.setSecure` | `keychain.plugin` |
+| `ctx.storage.getSecure`, `.setSecure`, `.deleteSecure` | `keychain.plugin` |
+
+Every method spelling above is pinned to the SDK 3.0.0 mirror (`reference/plugin-api/namespaces.d.ts` in the `appos-plugin-dev` skill). If you encounter a classic-namespace call NOT in this table (e.g. the `ctx.ui.open*` family, whose gating is path-scoped and varies per method), verify the method exists in the mirror and look up its scope there — do NOT guess a spelling or scope. In particular, `ctx.ui.registerQuickAction` and a `ui.quickActions` scope do not exist in SDK 3.0.0; flag any occurrence of either as an ERROR, not as a permission mismatch.
 
 The table above covers the classic namespaces. Core-plugin namespaces (`ctx.actions`, `ctx.notifications`, `ctx.scheduler`, `ctx.vault`, `ctx.store`, `ctx.resources`, `ctx.entities`, `ctx.views`, `ctx.webhook`, `ctx.llm`, `ctx.recipes`, `ctx.sequences`, ...) each require their own scopes (e.g. `actions.register`, `actions.invoke`, `notifications.emit`, `scheduler.job.own`). Do NOT hand-check those against a memorized list — look the scope up per namespace in the `appos-plugin-dev` skill's permission reference (the schema validation in step 2 is the authoritative enum check).
 

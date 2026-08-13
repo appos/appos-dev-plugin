@@ -108,12 +108,11 @@ import { vstack, section, listItem, button } from '@appos.space/view-builders';
 
 The SDK's main entry ships no ambient globals — `import type` every
 `plugin-types` name you use (TS2304 on an SDK name means you forgot). The
-other two packages have real runtime exports. One opt-in exception: SDK
-3.0.1+ adds a `@appos.space/plugin-types/globals` subpath typing the
+other two packages have real runtime exports. One opt-in exception: the
+SDK 3.0.1+ `@appos.space/plugin-types/globals` subpath types the
 host-injected `URL` global — it augments nothing unless a tsconfig
-references it, and the scaffolded `src/jsc-globals.d.ts` declares the same
-surface locally instead (works on any 3.x pin; keep exactly ONE of the
-two).
+references it; the scaffolded `src/jsc-globals.ts` declares the same
+surface locally (any 3.x pin; keep exactly ONE).
 
 ## Plugin entry pattern
 

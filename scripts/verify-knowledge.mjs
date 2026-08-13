@@ -113,8 +113,17 @@
  *    defaulting (webview-panels/** → DOM) was measured on this corpus and
  *    REJECTED: every compiled ts fence in the webview teaching docs is
  *    plugin-SIDE code (the WebView-side snippets there are js/html fences,
- *    which never compile), so a path default would have exempted exactly the
- *    fences that teach the JSC timer guard.
+ *    which do not compile untagged), so a path default would have exempted
+ *    exactly the fences that teach the JSC timer guard.
+ *  - WebView-side JS fences may additionally opt in with ```js webview:
+ *    they compile as strict-checkJs `.js` (allowJs + checkJs + lib.dom, no
+ *    SDK preamble — `declare` is illegal in .js) against a synthesized copy
+ *    of the canonical webview/twopanez.d.ts ambient, mirroring the
+ *    tsconfig.webview.json program the webview-panels skill prescribes
+ *    (include: webview/**, strict, checkJs). This exists so canonical
+ *    panel-script examples (patterns.md §21 app.js) cannot regress into
+ *    code that fails the very `npm run typecheck` wiring the docs mandate.
+ *    Untagged js fences remain invisible to this gate.
  *  - A preamble is injected ahead of each fence:
  *        import type * as __sdk from "@appos.space/plugin-types";
  *        declare const ctx: __sdk.PluginContext;
@@ -1049,6 +1058,14 @@ fs.mkdirSync(fenceTmpDir, { recursive: true });
  *    `searchParams` — that getter THROWS at runtime), declared HERE
  *    because the subpath is opt-in (never auto-included) and the pinned
  *    SDK may predate it.
+ * Every value global below is declared `var` (never `const`): the
+ * scaffolded `src/jsc-globals.ts` teaching fences (new-plugin.md step 6,
+ * patterns.md §18) are `declare global` MODULES whose declarations land in
+ * the same global scope as this file when those fences compile. `var`
+ * redeclaration is legal only with IDENTICAL types, while a `const` would
+ * collide outright (TS2451) — so the canonical fences stay verified AND
+ * check 3 pins their declared surface to this copy: any drift between the
+ * taught globals and this file fails as TS2403 mapped to the markdown line.
  * Deliberately ABSENT: DOM (`document`, `window`), browser `fetch` (plugins
  * use `ctx.network.fetch`), XMLHttpRequest, storage, `URLSearchParams` (the
  * runtime `url.searchParams` getter throws — parse `url.search` manually) —
@@ -1057,7 +1074,11 @@ fs.mkdirSync(fenceTmpDir, { recursive: true });
  */
 const JSC_GLOBALS_DTS = path.join(fenceTmpDir, "__jsc-runtime-globals.d.ts");
 fs.writeFileSync(JSC_GLOBALS_DTS, `// Synthesized by verify-knowledge.mjs — JSC plugin-runtime ambient globals.
-declare const console: {
+// All value globals are \`var\` (never \`const\`) so the scaffolded
+// src/jsc-globals.ts fences — \`declare global\` modules — can legally
+// REDECLARE them (identical types required, which pins doc surface to this
+// canonical copy; a \`const\` would collide as TS2451).
+declare var console: {
     log(...args: unknown[]): void;
     info(...args: unknown[]): void;
     warn(...args: unknown[]): void;
@@ -1065,10 +1086,10 @@ declare const console: {
     debug(...args: unknown[]): void;
     trace(...args: unknown[]): void;
 };
-declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
-declare const clearTimeout: ((id: number | undefined) => void) | undefined;
-declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
-declare const clearInterval: ((id: number | undefined) => void) | undefined;
+declare var setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare var clearTimeout: ((id: number | undefined) => void) | undefined;
+declare var setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+declare var clearInterval: ((id: number | undefined) => void) | undefined;
 // Host-injected Foundation-bridged URL (AppOS 1.1.0+, fn-182) — v1 subset,
 // same surface as the SDK 3.0.1 opt-in globals subpath. \`var\` (not const)
 // matches that subpath's declaration. No searchParams: the runtime getter
@@ -1096,23 +1117,62 @@ interface URLConstructor {
 declare var URL: URLConstructor | undefined;
 `);
 
+/**
+ * WebView-side ambient bridge declaration for `js webview` fences — a
+ * synthesized copy of the canonical webview/twopanez.d.ts every WebView
+ * plugin ships (authoritative teaching copy: reference/extension-api.md
+ * § "WebView-side bridge (`window.twopanez`)"; webview-panels/SKILL.md
+ * carries the same text as a compiled ts fence). The prescribed
+ * tsconfig.webview.json includes webview/**\/* so panel .js and the d.ts
+ * share one program — this extra root mirrors that program shape for
+ * checkJs fences. It is deliberately NOT given to `ts webview` fences:
+ * those self-declare their ambients (the SKILL.md fence IS this
+ * declaration, and injecting a second global augmentation would collide).
+ */
+const TWOPANEZ_DTS = path.join(fenceTmpDir, "__webview-twopanez.d.ts");
+fs.writeFileSync(TWOPANEZ_DTS, `// Synthesized by verify-knowledge.mjs — canonical webview/twopanez.d.ts
+// (mirror of reference/extension-api.md § "WebView-side bridge").
+interface TwopanezBridge {
+    send(message: unknown): void;
+    request(message: unknown): Promise<unknown>;
+    onMessage(handler: (message: unknown) => void): void;
+    readonly instanceId: string;
+    readonly windowId: string;
+    readonly paneId: 'left' | 'right';
+}
+declare global {
+    interface Window { readonly twopanez: TwopanezBridge; }
+}
+export {};
+`);
+
 let fenceCount = 0;
 let optedOut = 0;
 let webviewEnvCount = 0;
+let webviewJsEnvCount = 0;
 for (const mdFile of fenceFiles) {
   const text = fs.readFileSync(path.join(REPO_ROOT, mdFile), "utf8");
   for (const fence of extractFences(text)) {
-    if (fence.lang !== "ts" && fence.lang !== "typescript") continue;
+    const isTs = fence.lang === "ts" || fence.lang === "typescript";
+    // js fences compile ONLY with the explicit `webview` opt-in tag
+    // (```js webview) — checked as strict-checkJs WebView panel code (see
+    // header). Untagged js fences stay invisible to this gate.
+    const isWebviewJs = (fence.lang === "js" || fence.lang === "javascript") && fence.flags.includes("webview");
+    if (!isTs && !isWebviewJs) continue;
     if (fence.flags.includes("no-verify")) { optedOut++; continue; }
     fenceCount++;
-    const env = fence.flags.includes("webview") ? "webview" : "plugin";
+    const env = isWebviewJs ? "webviewJs" : fence.flags.includes("webview") ? "webview" : "plugin";
     if (env === "webview") webviewEnvCount++;
-    const preamble = [PREAMBLE_IMPORT, ...(bindsCtx(fence.code) ? [] : [PREAMBLE_CTX])];
+    if (env === "webviewJs") webviewJsEnvCount++;
+    // No preamble for js fences: `declare` is illegal in .js files (TS8006)
+    // and WebView code never sees the SDK — window.twopanez comes from the
+    // synthesized ambient d.ts in the env's extraRoots.
+    const preamble = isWebviewJs ? [] : [PREAMBLE_IMPORT, ...(bindsCtx(fence.code) ? [] : [PREAMBLE_CTX])];
     const virtualPath = path.join(
       fenceTmpDir,
-      `${mdFile.replace(/[\\/]/g, "__").replace(/\.md$/, "")}__L${fence.startLine}.ts`,
+      `${mdFile.replace(/[\\/]/g, "__").replace(/\.md$/, "")}__L${fence.startLine}.${isWebviewJs ? "js" : "ts"}`,
     );
-    fs.writeFileSync(virtualPath, preamble.join("\n") + "\n" + fence.code + "\n");
+    fs.writeFileSync(virtualPath, (preamble.length ? preamble.join("\n") + "\n" : "") + fence.code + "\n");
     fenceUnits.push({ virtualPath, mdFile, startLine: fence.startLine, preambleLines: preamble.length, env });
   }
 }
@@ -1139,6 +1199,15 @@ if (fenceUnits.length) {
   const envConfigs = {
     plugin: { options: { ...baseOptions, lib: ["lib.es2022.d.ts"] }, extraRoots: [JSC_GLOBALS_DTS] },
     webview: { options: { ...baseOptions, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"] }, extraRoots: [] },
+    // ```js webview fences: strict checkJs over a .js virtual file + the
+    // synthesized canonical twopanez.d.ts — mirrors the taught
+    // tsconfig.webview.json program (allowJs/checkJs/strict, DOM lib,
+    // webview/**/* include). allowJs/checkJs are not parse-affecting, so
+    // the shared source-file cache stays safe across envs.
+    webviewJs: {
+      options: { ...baseOptions, allowJs: true, checkJs: true, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"] },
+      extraRoots: [TWOPANEZ_DTS],
+    },
   };
   // ONE PROGRAM PER FENCE — the isolation guarantee is structural. With all
   // fences as roots of a single Program, a `declare global` augmentation or
@@ -1239,8 +1308,8 @@ for (const file of teachingFiles) {
 console.log(`[verify-knowledge] derived truth: ${JSON.stringify(truth)}`);
 console.log(
   `[verify-knowledge] scanned ${teachingFiles.length} teaching files, ` +
-  `${fenceCount} ts fences compiled (${fenceCount - webviewEnvCount} plugin-runtime env, ` +
-  `${webviewEnvCount} webview env, ${optedOut} opted out via no-verify), ` +
+  `${fenceCount} fences compiled (${fenceCount - webviewEnvCount - webviewJsEnvCount} plugin-runtime env, ` +
+  `${webviewEnvCount} webview ts env, ${webviewJsEnvCount} webview checkJs env, ${optedOut} opted out via no-verify), ` +
   `migration guide ${migrationExists ? "fence-checked" : "not present yet (fn-165.2)"}, compiled/** excluded`,
 );
 

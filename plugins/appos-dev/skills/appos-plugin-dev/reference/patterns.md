@@ -833,9 +833,8 @@ if (isWatch) {
 }
 ```
 
-**Invoked as**: `npm run build` or `node build.mjs`. The esbuild API wins
-over `npx esbuild ...` because watch mode is cleaner and the script
-survives across platforms.
+**Invoked as**: `npm run build` or `node build.mjs`. The esbuild API
+beats `npx esbuild ...`: cleaner watch mode, works across platforms.
 
 ## 18. tsconfig (mandatory flags)
 
@@ -852,6 +851,7 @@ survives across platforms.
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
+        "types": [],
         "lib": ["ES2022"]
     },
     "include": ["src/**/*.ts"],
@@ -859,72 +859,79 @@ survives across platforms.
 }
 ```
 
-**`verbatimModuleSyntax: true` is mandatory** for any plugin importing
-from `@appos.space/plugin-types`. Without it, TypeScript emits runtime
-`require` / `import` calls that look up a non-existent module in the
-bundler. The plugin silently fails to activate.
+**`verbatimModuleSyntax: true` is mandatory** — without it TypeScript
+emits runtime `require`/`import` calls for the type-only
+`@appos.space/plugin-types` and the plugin silently fails to activate.
 
-**`lib` has no `DOM`** — plugin code runs in JavaScriptCore, which has no
-`document`/`window`, no browser `fetch` (use `ctx.network.fetch`), no
-guaranteed timers, and `URL` only on hosts that inject it (AppOS 1.1.0+).
-Ship a `src/jsc-globals.d.ts` declaring what the runtime
-genuinely provides (picked up automatically by `"include": ["src/**/*.ts"]`):
+**`lib` has no `DOM`** — JSC has no `document`/`window`, no browser
+`fetch` (use `ctx.network.fetch`), no guaranteed timers, and `URL` only on
+hosts that inject it (AppOS 1.1.0+).
+**`types` is pinned `[]`** so a later `@types/node` install cannot inject
+`process`/Node timer globals that typecheck yet throw in JSC. Ship a
+`src/jsc-globals.ts` `declare global` module (matched by
+`"include": ["src/**/*.ts"]`) declaring the runtime's real globals:
 
 ```ts
-// src/jsc-globals.d.ts — JSC plugin-runtime ambient globals. JSC ships a
-// native console; the host injects NO timers — `| undefined` typing makes an
-// unguarded setTimeout(...) a TS2722 error, while a
+// src/jsc-globals.ts — JSC plugin-runtime ambient globals. A `declare
+// global` .ts MODULE, not a .d.ts: skipLibCheck skips every .d.ts (even
+// project-owned), so corruption silently degrades to error-`any`; a
+// .ts module is always checked. JSC ships a native console; the host
+// injects NO timers — `| undefined` typing makes an unguarded
+// setTimeout(...) a TS2722 error while a
 // `typeof setTimeout === 'function'`-narrowed call compiles.
-declare const console: {
-    log(...args: unknown[]): void;
-    info(...args: unknown[]): void;
-    warn(...args: unknown[]): void;
-    error(...args: unknown[]): void;
-    debug(...args: unknown[]): void;
-    trace(...args: unknown[]): void;
-};
-declare const setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
-declare const clearTimeout: ((id: number | undefined) => void) | undefined;
-declare const setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
-declare const clearInterval: ((id: number | undefined) => void) | undefined;
-// URL — hosts 1.1.0+ inject a Foundation-bridged URL (immutable v1 subset;
-// searchParams THROWS — parse url.search manually). Typed `| undefined`
-// (older hosts / kill switch / menu-bar contexts lack it): an unguarded
-// `new URL(...)` is a TS18048 error; a `typeof URL === 'function'`-narrowed
-// call compiles (guarded usage: §24). Same surface as the SDK 3.0.1+ opt-in
-// `@appos.space/plugin-types/globals` subpath (`var` matches it) — when
-// pinning >=3.0.1 you may reference that subpath from tsconfig `types`
-// instead and DELETE this block (keeping both double-declares URL).
-interface URL {
-    readonly href: string;
-    readonly protocol: string;
-    readonly hostname: string;
-    readonly host: string;
-    readonly port: string;
-    readonly pathname: string;
-    readonly search: string;
-    readonly hash: string;
-    readonly origin: string;
-    readonly username: string;
-    readonly password: string;
-    toString(): string;
-    toJSON(): string;
+export {};
+
+declare global {
+    var console: {
+        log(...args: unknown[]): void;
+        info(...args: unknown[]): void;
+        warn(...args: unknown[]): void;
+        error(...args: unknown[]): void;
+        debug(...args: unknown[]): void;
+        trace(...args: unknown[]): void;
+    };
+    var setTimeout: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+    var clearTimeout: ((id: number | undefined) => void) | undefined;
+    var setInterval: ((handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) => number) | undefined;
+    var clearInterval: ((id: number | undefined) => void) | undefined;
+    // URL — hosts 1.1.0+ inject a Foundation-bridged URL (immutable v1 subset;
+    // searchParams THROWS — parse url.search manually). Typed `| undefined`
+    // (older hosts / kill switch / menu-bar contexts lack it): unguarded
+    // `new URL(...)` is a TS18048 error; a `typeof URL === 'function'` guard
+    // compiles (usage: §24). Same surface as the SDK 3.0.1+ opt-in
+    // `@appos.space/plugin-types/globals` subpath — on a >=3.0.1 pin you may
+    // set tsconfig `types` to that subpath and DELETE this URL block
+    // (keeping both double-declares URL).
+    interface URL {
+        readonly href: string;
+        readonly protocol: string;
+        readonly hostname: string;
+        readonly host: string;
+        readonly port: string;
+        readonly pathname: string;
+        readonly search: string;
+        readonly hash: string;
+        readonly origin: string;
+        readonly username: string;
+        readonly password: string;
+        toString(): string;
+        toJSON(): string;
+    }
+    interface URLConstructor {
+        new (url: string | URL, base?: string | URL): URL;
+        canParse(url: string | URL, base?: string | URL): boolean;
+        readonly prototype: URL;
+    }
+    var URL: URLConstructor | undefined;
 }
-interface URLConstructor {
-    new (url: string | URL, base?: string | URL): URL;
-    canParse(url: string | URL, base?: string | URL): boolean;
-    readonly prototype: URL;
-}
-declare var URL: URLConstructor | undefined;
 ```
 
 Browser globals in `src/` now fail typecheck (`document` → TS2584,
-`window`/`fetch` → TS2304) instead of passing and throwing at runtime, and
-unguarded `setTimeout(...)` / `new URL(...)` calls fail (TS2722 / TS18048)
-while `typeof`-guarded calls compile (guarded URL usage: §24). DOM
-belongs only in a WebView-side `tsconfig.webview.json` (see the
-`webview-panels` skill), which sets `skipLibCheck: false` because its only
-declaration file is the project-owned `webview/twopanez.d.ts`.
+`window`/`fetch` → TS2304), unguarded `setTimeout(...)` / `new URL(...)`
+fail (TS2722 / TS18048), and `typeof`-guarded calls compile (guarded URL
+usage: §24). DOM belongs only in the WebView-side `tsconfig.webview.json`
+(`webview-panels` skill; `skipLibCheck: false` keeps the
+project-owned `webview/twopanez.d.ts` checked).
 
 ## 19. Deploy (rsync with --delete-excluded)
 
@@ -1016,17 +1023,14 @@ async function activate(ctx: PluginContext): Promise<void> {
         allowNavigation: false,
     });
     void panelToken; // typed as string, but undefined on the 1.0.0 host — see pattern 6
-    // Teardown: the host removes the panel + handlers on plugin unload;
-    // the disposed flag is the mid-life teardown mechanism (pattern 6).
-    // Do NOT push ctx.ui.unregister(panelToken) — on the 1.0.0 host that
-    // is unregister(undefined), which cannot unregister and may throw.
+    // Host removes panel + handlers on unload; `disposed` handles mid-life
+    // teardown. Do NOT push ctx.ui.unregister(panelToken) — that is
+    // unregister(undefined) on the 1.0.0 host and may throw (pattern 6).
     disposables.push(() => { disposed = true; });
 
-    // SECURITY: messages are SEMANTIC intents, never shell-shaped. The
-    // webview may only ask for named operations; the plugin hardcodes the
-    // command + argv per intent. NEVER forward a command or argv array
-    // from webview input into ctx.shell.execute — a compromised or buggy
-    // panel could then drive any allowlisted binary with arbitrary flags.
+    // SECURITY: messages are SEMANTIC intents, never shell-shaped — the
+    // plugin hardcodes command + argv per intent. NEVER forward a command
+    // or argv array from webview input into ctx.shell.execute.
     const messageToken = ctx.ui.onWebPanelMessage('main-panel', (envelope) => {
         if (disposed) return;
         if (typeof envelope.data !== 'object' || envelope.data === null) return;
@@ -1121,50 +1125,43 @@ async function deactivate(): Promise<void> {
 ### webview/main/styles.css
 
 ```css
+/* Host-injected design tokens — update live on theme change */
 body {
     margin: 0;
     padding: 16px;
     background-color: var(--twopanez-bg);
     color: var(--twopanez-text);
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 #output {
     background: var(--twopanez-bg-surface);
-    border-radius: 8px;
-    padding: 12px;
     font-family: 'SF Mono', monospace;
-    font-size: 12px;
     white-space: pre-wrap;
-    min-height: 200px;
-    overflow-y: auto;
 }
 
 button {
     background: var(--twopanez-accent);
     color: var(--twopanez-bg);
-    border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
-    margin-top: 12px;
-    cursor: pointer;
 }
 ```
 
 ### webview/main/app.js
 
-```js
+```js webview
+// Strict checkJs-clean; requires webview/twopanez.d.ts (extension-api.md).
+/** @typedef {{ v: number, type: string, [key: string]: unknown }} ProtocolMessage */
+
 const output = document.getElementById('output');
 const runBtn = document.getElementById('run');
+if (!output || !runBtn) throw new Error('missing #output/#run');
 
 // Receive protocol messages from plugin via postToWebPanel
-window.twopanez.onMessage((msg) => {
-    if (typeof msg !== 'object' || msg === null || msg.v !== 1) return;
+window.twopanez.onMessage((data) => {
+    const msg = /** @type {Partial<ProtocolMessage> | null} */ (data);
+    if (typeof msg !== 'object' || msg === null || msg.v !== 1 || typeof msg.type !== 'string') return;
     if (msg.type === 'started') output.textContent = '';
-    if (msg.type === 'output') output.textContent += msg.data;
-    if (msg.type === 'finished') {
-        output.textContent += `\n[exit ${msg.exitCode}]`;
-    }
+    if (msg.type === 'output' && typeof msg.data === 'string') output.textContent += msg.data;
+    if (msg.type === 'finished') output.textContent += `\n[exit ${msg.exitCode}]`;
 });
 
 runBtn.addEventListener('click', () => {
@@ -1188,12 +1185,12 @@ checkStatus();
   per intent, so webview input can never steer `ctx.shell.execute`
 - All JS and CSS are external files (CSP blocks inline `<script>` and
   `<style>`)
-- WebView-side code ships as plain `.js` — for typed WebView TypeScript,
-  add the `window.twopanez` ambient declaration from `extension-api.md`
-  ("WebView-side bridge") as `webview/twopanez.d.ts`
-- Use `window.twopanez.send()` / `.request()` for webview-to-plugin
-  communication; `window.twopanez.onMessage()` for pushes from
-  `postToWebPanel`
+- WebView `.js` is checked by the strict `checkJs` `tsconfig.webview.json`
+  (`webview-panels` skill): ship the `window.twopanez` ambient declaration
+  from `extension-api.md` ("WebView-side bridge") as `webview/twopanez.d.ts`,
+  JSDoc-narrow payloads, null-check elements — as in `app.js` above
+- `window.twopanez.send()` / `.request()` go webview→plugin;
+  `.onMessage()` receives `postToWebPanel` pushes
 - If also using `pipeShellToWebPanel`, shell chunks
   (`{ stream, data, bytesTotal }`) arrive via `onMessage` alongside
   protocol messages — filter by presence of `msg.stream`
