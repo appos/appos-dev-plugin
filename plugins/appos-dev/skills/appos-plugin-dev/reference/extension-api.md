@@ -154,22 +154,21 @@ Other methods:
 |---|---|---|
 | `registerFromCommand(commandId, metadata)` | Projects an existing `ctx.commands` command into the action catalog | `actions.register` |
 | `invoke(id, input, source?)` | Invokes through the full pipeline; resolves to an `ActionReceipt` | `actions.invoke` (+ `actions.invoke.agent` for source `"agent"`) |
-| `all()` | Lists the action catalog (runtime-registered only on the shipped host — see below) | `actions.list` |
+| `all()` | Lists the merged action catalog (runtime-registered + manifest-declared — see below) | `actions.list` |
 | `unregister(handleToken)` | Removes an executable registration | `actions.register` |
 
-By design `all()` also returns **manifest-only** entries (declared via
-`extensions[]` but with no executable handler bound yet; invoking one
-surfaces `ACTION_NOT_FOUND` until `register()` binds the handler). On the
-shipped host this does NOT happen — manifest `actions.definition`
-contributions never reach discovery (host bug fn-163; see the caveat
-under "`extensions[]`" below), so `all()` and `palette.query()` list
-runtime-registered actions only. Never write code that expects to find an
-unbound manifest action in `all()`. <!-- remove when fn-163 lands -->
+`all()` also returns **manifest-only** entries — `actions.definition`
+contributions are replayed into discovery at cold start and on plugin
+activation, so they surface in `all()` and `palette.query()` (badged
+"manifest only" in the Action Browser) before any runtime call. They are
+metadata, not executables: invoking one surfaces `ACTION_NOT_FOUND` until
+`register()` / `registerFromCommand()` binds the handler (see
+"`extensions[]`" below).
 
 #### `ctx.palette` — palette integration (fn-89)
 
-`query(text, scope?)` searches the action catalog (the fn-163 caveat
-above applies — runtime-registered actions only); `pin(id)` /
+`query(text, scope?)` searches the merged action catalog (manifest-only
+entries included — see `all()` above); `pin(id)` /
 `unpin(id)` manage palette pins (`palette.contribute.scope`);
 `history(limit?)` returns recent invocations (`palette.history`).
 
@@ -422,12 +421,14 @@ conventionally under `contribution`:
   AppOS repo — its manifest carries recipe + sequence + trigger
   contributions and its `activate` is a no-op.
 
-> **Caveat — manifest-declared ACTIONS don't reach discovery yet (host bug
-> fn-163).** An `actions.definition` contribution alone currently never
-> becomes palette-visible or invokable. Pair EVERY `actions.definition`
-> contribution with a runtime `ctx.actions.register(...)` or
-> `ctx.actions.registerFromCommand(...)` call — dual registration, exactly
-> as `appos-plugin-ytdlp` ships it. <!-- remove when fn-163 lands -->
+> **Manifest-declared ACTIONS are discoverable metadata, not executables.**
+> The host replays `actions.definition` contributions into discovery at
+> cold start and on plugin activation (visible in `ctx.actions.all()` /
+> `palette.query()`, badged "manifest only"), but invoking one surfaces
+> `ACTION_NOT_FOUND` until a runtime `ctx.actions.register(...)` or
+> `ctx.actions.registerFromCommand(...)` call binds the handler. Pair
+> EVERY contribution with its runtime registration — dual registration,
+> exactly as `appos-plugin-ytdlp` ships it.
 
 ## Catalog bundle layout
 
@@ -577,13 +578,10 @@ Notable properties:
 - **`remoteImage`** — `url` (file:// only in v1), `width`, `height`,
   `cornerRadius`, `maxDimension` (default 512)
 - **`textField`** — `placeholder`, `text` (initial contents), `action`
-  (fires on submit). Divergence: SDK 3.0.0 (`TextFieldDescriptor` and the
-  `textField()` builder) names the initial-contents property `text`, but
-  the shipped 1.0.0 host reads `value` — typed `text` compiles yet
-  renders empty today, while `value` fails excess-property checking. To
-  seed initial contents on today's host, include BOTH keys via an
-  assertion-cast properties object. <!-- collapse to `text`-only when the
-  host reads `text` -->
+  (fires on submit). The host reads `text` for the initial contents,
+  falling back to the legacy loose-JSON `value` key only for back-compat.
+  Write the typed `text` property (as `TextFieldDescriptor` and the
+  `textField()` builder do) — never add a `value` key.
 - **`progress`** — `value` (0–1, omit for indeterminate), `label`,
   `style` (`"bar"` | `"circular"`)
 - **`listItem`** — `title`, `subtitle`, `icon`, `iconColor`, `action`,
