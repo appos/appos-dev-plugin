@@ -1372,8 +1372,8 @@ void activate;
 
 **File**: `src/services/validate.ts`
 
-AppOS hosts 1.1.0+ inject a native `URL` global — a Foundation-bridged
-implementation (macOS `URL(string:)`, RFC 3986), NOT a WHATWG polyfill.
+AppOS hosts 1.1.0+ inject a native `URL` global — Foundation-bridged
+(macOS `URL(string:)`, RFC 3986), NOT a WHATWG polyfill.
 Guard EVERY use, exactly like the timer guard in §8: older hosts never had
 it, users can switch it off (`appos.jsc.urlGlobal.disabled`), and menu-bar
 contexts do not carry it in v1 — `minHostVersion` removes only the
@@ -1385,9 +1385,8 @@ const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 function isValidMediaUrl(raw: string): boolean {
     if (typeof URL !== 'function') {
         // Older host / kill switch / menu-bar context: URL is absent.
-        // Decide the fallback per feature — fail CLOSED for
-        // security-shaped checks like this one, or hand-parse when the
-        // feature must still work without URL.
+        // Fail CLOSED for security-shaped checks like this one, or
+        // hand-parse when the feature must work without URL.
         return false;
     }
     // canParse never throws (unlike the constructor), so probe first.
@@ -1401,16 +1400,17 @@ void isValidMediaUrl;
 
 **Key points:**
 - `typeof URL === 'function'` before EVERY use — same contract as the
-  timer guard (§8); the §18 ambient file's `| undefined` typing turns an
+  timer guard (§8); the §18 ambient `| undefined` typing turns an
   unguarded `new URL(...)` into a compile error, not a runtime surprise.
-- **Parse coherence**: `u.hostname` is lowercased and, for the same input,
-  is the exact host string that enters the AppOS host's own security
-  normalizers (permission validation, initial-hop network checks) —
-  plugin-side URL validation parses identically to host-side enforcement.
+- **Parse coherence**: `u.hostname` is lowercased and is the exact host
+  string entering the host's security normalizers — plugin-side URL
+  validation parses identically to host-side enforcement.
 - `URL.canParse(input, base?)` returns a boolean and NEVER throws;
   `new URL(...)` throws a real `TypeError`
-  (`e instanceof TypeError === true`) on scheme-less or unparseable input,
-  and validates a supplied `base` first.
+  (`e instanceof TypeError === true`) on unparseable input, and on
+  scheme-less/scheme-relative input lacking a valid absolute `base`
+  (`new URL('/api', 'https://x.test')` resolves); a bad `base` throws
+  first.
 - Instances are immutable (readonly accessors; assignment is a
   sloppy-mode no-op). `String(u)`, template literals, and
   `JSON.stringify(u)` all yield `u.href`.
@@ -1419,11 +1419,11 @@ void isValidMediaUrl;
   malformed percent sequences, so wrap it in try/catch).
 - Pinned Foundation-vs-WHATWG divergences (intended — do not "fix"):
   default ports are RETAINED (`https://x:443/` keeps port `"443"`), an
-  empty path stays `""` (not `"/"`), IPv6 hostnames come WITHOUT brackets
-  while `host`/`origin` re-bracket them (`https://[::1]:8443/x` →
-  hostname `"::1"`, host `"[::1]:8443"`, origin `"https://[::1]:8443"`),
-  and pre-encoded query values double-encode on an href round-trip
-  (`%3A` → `%253A`).
+  empty path stays `""` (not `"/"`), and IPv6 hostnames come WITHOUT
+  brackets while `host`/`origin` re-bracket them (`https://[::1]:8443/x`
+  → hostname `"::1"`, host `"[::1]:8443"`, origin `"https://[::1]:8443"`).
+  (The `%3A` → `%253A` double-encode is `URLComponents.queryItems`-only;
+  `href` round-trips preserve pre-encoded query values verbatim.)
 
 ## Further reading
 
