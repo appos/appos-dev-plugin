@@ -90,7 +90,7 @@ When the user describes what they want to build, map their requirements to speci
 - `interPluginEvents` — Pub/sub between plugins
 
 **Actions & automation (core-plugin tier)**
-- `actions` — Public Action Fabric: typed, schema-validated, policy-bearing public actions (`register`, `invoke`, `all`, `registerFromCommand`). Declare actions in the manifest `extensions[]` (`actions.definition`) too, but ALWAYS pair with the runtime registration — manifest-declared actions don't reach discovery on their own yet (host bug fn-163; see `skills/appos-plugin-dev/reference/extension-api.md`): today the manifest entry is catalog/manifest metadata, and the runtime `ctx.actions.register(...)` call is what makes the action discoverable and executable. <!-- remove when fn-163 lands -->
+- `actions` — Public Action Fabric: typed, schema-validated, policy-bearing public actions (`register`, `invoke`, `all`, `registerFromCommand`). Declare actions in the manifest `extensions[]` (`actions.definition`) too, but ALWAYS pair with the runtime registration — the manifest entry is replayed into discovery at cold start and on plugin activation (visible in `ctx.actions.all()` / `palette.query()`, badged "manifest only"; see `skills/appos-plugin-dev/reference/extension-api.md`), and the runtime `ctx.actions.register(...)` call is what makes the action executable (`ACTION_NOT_FOUND` on invoke until it binds).
 - `palette` — Command palette integration for public actions (`query`, `history`, `pin`)
 - `scheduler` — Job scheduling engine: interval/cron/notification/fsEvents/calendar/power/network triggers, conditions, run history
 - `recipes` / `sequences` — Author-declared multi-step plans (linear or LLM-agent) dispatched through the action fabric

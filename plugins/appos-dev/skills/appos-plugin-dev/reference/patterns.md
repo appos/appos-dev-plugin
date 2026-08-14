@@ -139,15 +139,15 @@ export async function registerActions(ctx: PluginContext): Promise<() => Promise
 - `register` resolves to a handle token — keep it for `unregister` in your
   dispose path.
 
-## 3. `extensions[]` + runtime dual registration (fn-163 workaround)
+## 3. `extensions[]` + runtime dual registration
 
 **Files**: `plugin.json` + `src/main.ts`
 
-Declare actions in the manifest so they are visible in catalogs and
-manifest scans — AND bind the executable at runtime. Manifest-declared
-actions currently never reach discovery on their own (host bug fn-163), so
-ship BOTH, exactly as `appos-plugin-ytdlp` does.
-<!-- remove when fn-163 lands -->
+Declare actions in the manifest AND bind the executable at runtime. The
+manifest entry is replayed into discovery (palette-visible, badged
+"manifest only") but stays non-executable — `ACTION_NOT_FOUND` on
+invoke — until the runtime registration binds the handler. Ship BOTH,
+exactly as `appos-plugin-ytdlp` does.
 
 ```json
 {

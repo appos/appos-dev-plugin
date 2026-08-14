@@ -266,9 +266,9 @@ If the plugin exposes public actions (command palette, automation), add an `exte
 ]
 ```
 
-**Dual registration is required.** Manifest-declared actions don't reach discovery on their own yet (host bug fn-163; see `skills/appos-plugin-dev/reference/extension-api.md`): an `actions.definition` contribution alone currently never becomes palette-visible or invokable — no cold-start palette entry, no `ctx.actions.all()` stub, no Settings → Actions row. Today the manifest entry is catalog/manifest metadata (visible in catalogs and manifest scans), not runtime discovery. Pair EVERY `actions.definition` contribution with a runtime `ctx.actions.register(...)` or `ctx.actions.registerFromCommand(...)` call in `activate()` using the same id — the runtime registration is what makes the action discoverable and executable. Ship BOTH, exactly as `appos-plugin-ytdlp` does. <!-- remove when fn-163 lands -->
+**Dual registration is required.** An `actions.definition` contribution is discoverable metadata (see `skills/appos-plugin-dev/reference/extension-api.md`): the host replays it into the discovery catalog at cold start and on plugin activation, so it surfaces as a `ctx.actions.all()` stub, a palette entry, and an Action Browser row badged "manifest only" — but it is NOT executable: invoking it surfaces `ACTION_NOT_FOUND` until a runtime `ctx.actions.register(...)` or `ctx.actions.registerFromCommand(...)` call in `activate()` binds the handler using the same id. Ship BOTH, exactly as `appos-plugin-ytdlp` does.
 
-**Removal marker**: when you retire an action, remove BOTH sites — the runtime `register()` call and the manifest contribution. A leftover manifest stub is stale catalog/manifest metadata today, and once fn-163 lands it would be replayed into discovery at every cold start as a permanently non-executable palette entry.
+**Removal marker**: when you retire an action, remove BOTH sites — the runtime `register()` call and the manifest contribution. A leftover manifest stub is replayed into discovery at every cold start as a permanently non-executable palette entry (`ACTION_NOT_FOUND` on invoke).
 
 ## 9. Write src/main.ts
 

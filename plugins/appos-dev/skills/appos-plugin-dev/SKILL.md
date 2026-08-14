@@ -206,9 +206,10 @@ void token; // keep for ctx.actions.unregister(token) on dispose
   for an LLM reader. `registerFromCommand(commandId, metadata)` projects
   an existing command into the catalog.
 - Declare actions in the manifest `extensions[]` too, but ALWAYS pair with
-  the runtime registration — manifest-declared actions don't reach
-  discovery on their own yet (host bug fn-163; see
-  `reference/extension-api.md`). <!-- remove when fn-163 lands -->
+  the runtime registration — the manifest entry is replayed into discovery
+  (visible in `all()` / `palette.query()`, badged "manifest only") but
+  invoking it surfaces `ACTION_NOT_FOUND` until the runtime `register()`
+  binds the handler (see `reference/extension-api.md`).
 - Scopes: `actions.register` to register, `actions.invoke` to invoke
   (`actions.invoke.agent` additionally for agent-sourced invokes).
 
@@ -425,7 +426,7 @@ load. Full pattern: `reference/patterns.md` §13 + §23.
 
 Two manifest families live in `reference/extension-api.md`: `extensions[]`
 (manifest-declarative core-plugin contributions — qualified-id grammar,
-per-EP payloads, fn-163 dual-registration caveat for actions) and
+per-EP payloads, dual-registration contract for actions) and
 `dependencies` (system binaries + plugin deps; full example:
 `reference/patterns.md` §23).
 
