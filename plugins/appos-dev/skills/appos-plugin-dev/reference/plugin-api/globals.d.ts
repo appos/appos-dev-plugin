@@ -45,8 +45,9 @@ declare global {
          * `toString()` and `toJSON()`, so template literals, `String(u)` and
          * `JSON.stringify(u)` all yield the href.
          *
-         * Pinned divergence: pre-percent-encoded query values are DOUBLE-encoded
-         * on an href round-trip (`%3A` → `%253A`).
+         * Pre-percent-encoded query values round-trip VERBATIM (`%3A` stays
+         * `%3A`) — no double-encoding on the href path. See the {@link URL} var
+         * declaration's divergence notes.
          */
         readonly href: string;
         /** Lowercased scheme followed by `":"` (e.g. `"https:"`). */
@@ -159,14 +160,20 @@ declare global {
      * - Default ports are RETAINED in `href`/`port` (`:443` is not dropped).
      * - An empty path stays `""` (WHATWG would give `"/"`).
      * - Out-of-range ports are accepted.
-     * - Pre-percent-encoded query values double-encode on an href round-trip
-     *   (`%3A` → `%253A`).
      * - `hostname` is lowercased and IPv6 literals come WITHOUT brackets;
      *   `host`/`origin` re-bracket them (`https://[::1]:8443/x` → hostname
      *   `"::1"`, host `"[::1]:8443"`, origin `"https://[::1]:8443"`).
      * - Invalid characters are auto percent-/IDNA-encoded by Foundation
      *   (scheme-less inputs like `"not a url"` are rejected by the validity
      *   predicate, not by Foundation's parser).
+     *
+     * NOT a divergence: pre-percent-encoded query values round-trip VERBATIM
+     * on href (`%3A` stays `%3A`, matching WHATWG). The widely-reported
+     * `%3A` → `%253A` double-encode reproduces only via Foundation's
+     * `URLComponents.queryItems` construction path, which this API never
+     * uses — the host parses with `URL(string:)` and serializes with
+     * `absoluteString`, and pins the verbatim round-trip in its coherence
+     * tests.
      *
      * ## Out-of-subset surface (fails loudly, never silently wrong)
      *

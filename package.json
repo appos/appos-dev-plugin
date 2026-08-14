@@ -10,7 +10,7 @@
     "check": "npm run freshness && npm run verify && npm run freshness:compiled"
   },
   "devDependencies": {
-    "@appos.space/plugin-types": "3.0.1",
+    "@appos.space/plugin-types": "3.0.2",
     "@appos.space/plugin-utils": "3.0.0",
     "@appos.space/view-builders": "3.0.0",
     "typescript": "5.9.3"
