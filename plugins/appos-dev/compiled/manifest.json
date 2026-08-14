@@ -10,12 +10,12 @@
     "reference/patterns.md": "15be968192b19bbd74735a03571322df1a7c4fece579c6d2b3105eabb270f40a",
     "reference/plugin-api/index.d.ts": "cbdd7a4aa96001d3fe664427ffc30039ce09ba80dca2eee32960c5c925c4d8d4",
     "reference/plugin-api/core.d.ts": "3e951ef56e6148879fbe92d592399711f4bad5556f1549233ec3d32d0d9c49f9",
-    "reference/plugin-api/views.d.ts": "dc3ae9b751b1cce8541e269c8000001dd819622fe1d5dfdbee7c6ca88c06f551",
-    "reference/plugin-api/namespaces.d.ts": "17c3364ad01ecc2b341a487bc0f286afa11cb2471f1fddb3735b1b0379bdad17",
+    "reference/plugin-api/views.d.ts": "323f8570fe1c0e6140b5ee1f46cf79f368dc4d920e4b14544e5bf5753ae05f1e",
+    "reference/plugin-api/namespaces.d.ts": "467e6374fced48f027c22e9d01fe6daa68839b2f9881726725b901c66ccc8b1f",
     "reference/plugin-api/namespaces-core-plugins.d.ts": "1b6c76836a6cfc87a3699ab40b8f6fd19d2c88bc8d6f90cd4ca6604d236cb7f6",
-    "reference/plugin-api/permissions.d.ts": "cd947682aed902d4878e56a03cd864f930fdc65f61588cc9e7c132c28772ab18",
-    "reference/plugin-api/colors.d.ts": "dbabe48e8d4615db877035f422c2e3200b591641161037a01cda60e51ab0981d",
-    "reference/plugin-api/fonts.d.ts": "479ade3790891953f4302d5f8729ad67621f9b69dccec317bb8e5b47175d58ac",
-    "reference/plugin-api/icons.d.ts": "8465ce60f8e4f426dd04777cce38ce03dbcaa113f4c115ce76a715020ce9960d"
+    "reference/plugin-api/permissions.d.ts": "80b890f0eac15d612cd45b6892e348a16bbcd2eee2d515909583a7d25ed3c775",
+    "reference/plugin-api/colors.d.ts": "bb57988f9a884aac5688adfc3e498e92617dfae257829a78aae1ed18ae051a95",
+    "reference/plugin-api/fonts.d.ts": "a0fbe8f1c761bc1d5418ac5b15f2ba7c1bd33be14dd3a0bc3f007b84d28335e2",
+    "reference/plugin-api/icons.d.ts": "67d8c54c447c0f8b5a8f28f6375dc1956b68770221ff3028c0b73d8d039b546e"
   }
 }

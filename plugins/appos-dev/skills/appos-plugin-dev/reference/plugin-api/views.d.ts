@@ -152,3 +152,4 @@ export interface RemoteImageDescriptor extends ViewDescriptorBase {
 }
 export type ViewDescriptor = VStackDescriptor | HStackDescriptor | ScrollDescriptor | ListDescriptor | GridDescriptor | SectionDescriptor | TextDescriptor | LabelDescriptor | ImageDescriptor | BadgeDescriptor | ButtonDescriptor | ListItemDescriptor | DividerDescriptor | SpacerDescriptor | TextFieldDescriptor | ProgressDescriptor | RemoteImageDescriptor;
 export type ViewDescriptorType = ViewDescriptor["type"];
+//# sourceMappingURL=views.d.ts.map
