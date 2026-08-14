@@ -47,3 +47,4 @@ export interface PermissionEntry {
     /** Optional brief reason why this permission is needed (max 120 chars). */
     reason?: string;
 }
+//# sourceMappingURL=permissions.d.ts.map

@@ -12,3 +12,4 @@ export type DesignTokenColor = "ux_synapse" | "ux_cortex" | "ux_pulse" | "ux_sig
 export type HexColor = `#${string}`;
 /** All valid color values */
 export type PluginColor = SystemColor | SemanticColor | DesignTokenColor | HexColor;
+//# sourceMappingURL=colors.d.ts.map

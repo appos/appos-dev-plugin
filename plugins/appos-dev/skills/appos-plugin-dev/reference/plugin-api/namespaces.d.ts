@@ -1,8 +1,9 @@
 /**
- * API namespace interfaces — all 22 namespaces.
- * Each maps to a property on PluginContext.
+ * API namespace interfaces — the 22 host-core namespaces.
+ * Each maps to a property on PluginContext. The 21 core-plugin namespaces
+ * live in namespaces-core-plugins.ts; PluginContext exposes all 43.
  *
- * @version 2.4.0-fn50
+ * @version 3.0.0
  */
 import type { ViewDescriptor } from "./views";
 import type { PluginFileDescriptor, DependencyStatus } from "./core";
